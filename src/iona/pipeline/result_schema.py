@@ -138,7 +138,13 @@ class PlateSolveResult:
             return None
         header = Header()
         for key, value in self.wcs_header.items():
-            header[str(key)] = value
+            keyword = str(key).strip()
+            if keyword.upper() in {"", "COMMENT", "HISTORY", "END"}:
+                continue
+            try:
+                header[keyword] = value
+            except (TypeError, ValueError):
+                continue
         return WCS(header)
 
 

@@ -1,0 +1,2 @@
+examples/prototype_photos/*.jpg filter=lfs diff=lfs merge=lfs -text
+examples/prototype_photos/**/*.jpg filter=lfs diff=lfs merge=lfs -text

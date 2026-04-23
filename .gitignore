@@ -52,6 +52,7 @@ coverage.xml
 .pytest_cache/
 cover/
 output/refactor-audit/
+examples/prototype_photos/results/
 
 # Translations
 *.mo

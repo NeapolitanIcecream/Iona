@@ -1,4 +1,7 @@
 from io import BytesIO
+import json
+
+import requests
 
 from iona.config import SolverConfig
 from iona.solver.astrometry_net import AstrometryNetClient
@@ -13,10 +16,11 @@ def _fits_header_bytes() -> bytes:
 
 
 class FakeResponse:
-    def __init__(self, payload=None, content=b"not-a-fits-file") -> None:
+    def __init__(self, payload=None, content=b"not-a-fits-file", status_code=200) -> None:
         self._payload = payload or {}
         self.content = content
         self.text = content.decode("utf-8", errors="replace")
+        self.status_code = status_code
 
     def json(self):
         return self._payload
@@ -28,15 +32,19 @@ class FakeResponse:
 class FakeSession:
     def __init__(self, valid_wcs: bool = True) -> None:
         self.job_info_calls = 0
+        self.submission_calls = 0
+        self.upload_payloads = []
         self.valid_wcs = valid_wcs
 
     def post(self, url, **kwargs):
         if url.endswith("/upload"):
+            self.upload_payloads.append(json.loads(kwargs["data"]["request-json"]))
             return FakeResponse({"status": "success", "subid": 7})
         return FakeResponse({"status": "success", "session": "session-key"})
 
     def get(self, url, **kwargs):
         if url.endswith("/submissions/7"):
+            self.submission_calls += 1
             return FakeResponse({"jobs": [42]})
         if url.endswith("/jobs/42/info"):
             self.job_info_calls += 1
@@ -60,6 +68,14 @@ class FakeSession:
                 return FakeResponse(content=_fits_header_bytes())
             return FakeResponse(content=b"not-a-valid-fits-file")
         raise AssertionError(f"Unexpected URL: {url}")
+
+
+class TransientSubmissionSession(FakeSession):
+    def get(self, url, **kwargs):
+        if url.endswith("/submissions/7") and self.submission_calls == 0:
+            self.submission_calls += 1
+            raise requests.ConnectionError("proxy closed the connection")
+        return super().get(url, **kwargs)
 
 
 def test_astrometry_client_polls_until_job_reaches_success(tmp_path) -> None:
@@ -114,3 +130,40 @@ def test_astrometry_client_rejects_non_fits_wcs_download(tmp_path) -> None:
 
     assert not result.success
     assert result.failure_reason == "invalid_wcs_header"
+
+
+def test_astrometry_client_retries_transient_submission_disconnect(tmp_path) -> None:
+    """Regression: one proxy disconnect during polling should not abandon a solvable upload."""
+    image_path = tmp_path / "image.jpg"
+    image_path.write_bytes(b"fake")
+    session = TransientSubmissionSession()
+
+    result = AstrometryNetClient(
+        "api-key",
+        session=session,
+        request_retry_delay_seconds=0,
+    ).solve(
+        str(image_path),
+        SolverConfig(
+            astrometry_api_key="api-key",
+            timeout_seconds=5,
+            poll_interval_seconds=0,
+        ),
+    )
+
+    assert result.success
+    assert result.diagnostics["retry_events"] == [
+        {"operation": "submission_status", "attempt": 1, "reason": "ConnectionError"}
+    ]
+
+
+def test_astrometry_upload_does_not_send_scale_units_without_bounds(tmp_path) -> None:
+    """Regression: unpaired scale_units can trigger nova upload 500s."""
+    image_path = tmp_path / "image.jpg"
+    image_path.write_bytes(b"fake")
+    session = FakeSession()
+
+    AstrometryNetClient("api-key", session=session).upload(str(image_path))
+
+    assert session.upload_payloads
+    assert "scale_units" not in session.upload_payloads[0]
