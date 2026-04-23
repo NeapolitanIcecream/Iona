@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 
 from astrogeo.pipeline.result_schema import (
     BuildingLineDetectionResult,
@@ -28,7 +28,8 @@ def save_debug_overlay(
     lines: Optional[BuildingLineDetectionResult] = None,
     vp: Optional[VanishingPointResult] = None,
 ) -> None:
-    base = Image.open(image_path).convert("RGBA")
+    with Image.open(image_path) as image:
+        base = ImageOps.exif_transpose(image).convert("RGBA")
     width, height = base.size
     if sky and sky.sky_mask is not None:
         mask = np.asarray(sky.sky_mask, dtype=bool)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -14,7 +15,7 @@ from astrogeo.camera.rays import image_point_to_camera_ray
 from astrogeo.camera.rotation_fit import fit_camera_to_celestial_rotation
 from astrogeo.config import PipelineConfig
 from astrogeo.cv.line_detection import detect_building_lines
-from astrogeo.cv.preprocess import load_rgb_image
+from astrogeo.cv.preprocess import load_rgb_image, save_rgb_image_temp
 from astrogeo.cv.quality import aggregate_confidence
 from astrogeo.cv.sky_mask import estimate_sky_mask
 from astrogeo.cv.star_detection import detect_star_candidates
@@ -158,12 +159,20 @@ def run_auto_pipeline(
     diagnostics.append(_event("sky_detection", "ok", "Sky mask estimated", **sky.diagnostics))
 
     stars = detect_star_candidates(image, sky.sky_mask) if sky.sky_mask is not None else None
-    if stars:
-        warnings.extend(stars.warnings)
-        diagnostics.append(_event("star_detection", "ok", "Star candidates detected", **stars.diagnostics))
-    else:
+    if stars is None:
         failure_reasons.append("star_detection_failed")
         diagnostics.append(_event("star_detection", "failed", "Star detection could not run"))
+    else:
+        warnings.extend(stars.warnings)
+        star_details = {**stars.diagnostics, "min_star_count": config.min_star_count}
+        if stars.star_count < config.min_star_count:
+            failure_reasons.append("not_enough_stars")
+            warnings.append("Too few star candidates detected for reliable zenith/nadir disambiguation.")
+            diagnostics.append(
+                _event("star_detection", "failed", "Too few star candidates detected", **star_details)
+            )
+        else:
+            diagnostics.append(_event("star_detection", "ok", "Star candidates detected", **star_details))
 
     lines = detect_building_lines(image, sky.sky_mask) if sky.sky_mask is not None else None
     if lines:
@@ -173,14 +182,38 @@ def run_auto_pipeline(
         failure_reasons.append("line_detection_failed")
         diagnostics.append(_event("line_detection", "failed", "Building line detection could not run"))
 
-    plate: PlateSolveResult = solve_plate(image_path, sky.sky_mask, config.solver)
+    solver_image_path = save_rgb_image_temp(image)
+    try:
+        plate: PlateSolveResult = solve_plate(solver_image_path, sky.sky_mask, config.solver)
+    finally:
+        try:
+            Path(solver_image_path).unlink()
+        except FileNotFoundError:
+            pass
+
     if not plate.success:
         failure_reasons.append("plate_solve_failed")
         if plate.failure_reason:
             failure_reasons.append(plate.failure_reason)
-        diagnostics.append(_event("plate_solve", "failed", "Plate solving failed", **plate.diagnostics))
+        diagnostics.append(
+            _event(
+                "plate_solve",
+                "failed",
+                "Plate solving failed",
+                input_orientation="exif_transposed",
+                **plate.diagnostics,
+            )
+        )
     else:
-        diagnostics.append(_event("plate_solve", "ok", "Plate solving succeeded", **plate.diagnostics))
+        diagnostics.append(
+            _event(
+                "plate_solve",
+                "ok",
+                "Plate solving succeeded",
+                input_orientation="exif_transposed",
+                **plate.diagnostics,
+            )
+        )
 
     intrinsics = estimate_camera_intrinsics((height, width), exif_info=exif_info, plate_result=plate)
     warnings.extend(intrinsics.warnings)
@@ -213,7 +246,10 @@ def run_auto_pipeline(
     else:
         diagnostics.append(_event("rotation_fit", "ok", "Camera-to-celestial rotation fitted", **rotation.diagnostics))
 
-    solved_star_dirs = _star_dirs_from_wcs(wcs, stars.star_candidates if stars else [])
+    usable_star_points = (
+        stars.star_candidates if stars is not None and stars.star_count >= config.min_star_count else []
+    )
+    solved_star_dirs = _star_dirs_from_wcs(wcs, usable_star_points)
     zenith = estimate_zenith_radec(vp, intrinsics, rotation, solved_star_dirs) if vp else None
     if zenith and zenith.success:
         warnings.extend(zenith.warnings)
@@ -237,6 +273,7 @@ def run_auto_pipeline(
             confidence=stars.confidence if stars else 0.0,
             star_count=stars.star_count if stars else 0,
             star_density=stars.star_density if stars else 0,
+            min_star_count=config.min_star_count,
         ),
         "plate_solve": _quality_dict(
             success=plate.success,
@@ -300,4 +337,3 @@ def run_auto_pipeline(
         failure_reasons=sorted(set(failure_reasons)),
         diagnostics=diagnostics,
     )
-

@@ -10,9 +10,10 @@ from astrogeo.astronomy.geolocation import (
 )
 from astrogeo.camera.intrinsics import estimate_camera_intrinsics
 from astrogeo.camera.rotation_fit import fit_rotation_kabsch
-from astrogeo.pipeline.auto_estimate import estimate_zenith_radec, run_auto_pipeline
 from astrogeo.config import PipelineConfig, SolverConfig
-from astrogeo.pipeline.result_schema import VanishingPointResult
+from astrogeo.pipeline import auto_estimate
+from astrogeo.pipeline.auto_estimate import estimate_zenith_radec, run_auto_pipeline
+from astrogeo.pipeline.result_schema import PlateSolveResult, VanishingPointResult
 
 
 def test_synthetic_zenith_chain_recovers_known_location() -> None:
@@ -60,6 +61,31 @@ def test_pipeline_failure_result_contains_machine_readable_diagnostics(tmp_path)
 
     assert not result.success
     assert "plate_solve_failed" in result.failure_reasons
+    assert "not_enough_stars" in result.failure_reasons
     assert any(event.stage == "plate_solve" and event.status == "failed" for event in result.diagnostics)
+    assert any(event.stage == "star_detection" and event.status == "failed" for event in result.diagnostics)
     assert result.quality["plate_solve"]["failure_reason"] == "plate_solver_disabled"
 
+
+def test_pipeline_uses_exif_transposed_pixels_for_plate_solving(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / "portrait_with_orientation.jpg"
+    image = Image.new("RGB", (40, 20), color=(5, 5, 8))
+    exif = Image.Exif()
+    exif[274] = 6
+    image.save(image_path, exif=exif)
+    observed_sizes = []
+
+    def fake_solve_plate(path, sky_mask, config):
+        with Image.open(path) as solver_image:
+            observed_sizes.append(solver_image.size)
+        return PlateSolveResult(success=False, failure_reason="plate_solver_disabled")
+
+    monkeypatch.setattr(auto_estimate, "solve_plate", fake_solve_plate)
+
+    run_auto_pipeline(
+        str(image_path),
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        PipelineConfig(solver=SolverConfig(solver="none")),
+    )
+
+    assert observed_sizes == [(20, 40)]
