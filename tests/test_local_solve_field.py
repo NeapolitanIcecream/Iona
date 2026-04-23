@@ -125,6 +125,35 @@ def test_local_solve_field_reports_timeout(tmp_path, monkeypatch) -> None:
     assert result.diagnostics["timeout_seconds"] == 7
 
 
+def test_local_solve_field_reports_launch_failure(tmp_path, monkeypatch) -> None:
+    """Invalid solve-field binaries should become structured failures."""
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(b"fake-image")
+    index_dir = tmp_path / "indexes"
+    index_dir.mkdir()
+
+    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+        raise FileNotFoundError("solve-field not found")
+
+    monkeypatch.setattr(local_solve_field.subprocess, "run", fake_run)
+
+    result = local_solve_field.solve_with_local_solve_field(
+        image_path=str(image_path),
+        sky_mask=None,
+        config=SolverConfig(
+            solver="local",
+            timeout_seconds=7,
+            local_index_dir=str(index_dir),
+            local_solve_field_path="/missing/solve-field",
+        ),
+    )
+
+    assert not result.success
+    assert result.failure_reason == "local_solve_field_launch_failed"
+    assert result.diagnostics["error_type"] == "FileNotFoundError"
+    assert result.diagnostics["command"][0] == "/missing/solve-field"
+
+
 def test_local_solve_field_parses_index_filename_from_stdout() -> None:
     stdout = "Field 1: solved with index index-4119.fits.\n"
 

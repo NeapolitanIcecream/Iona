@@ -101,6 +101,18 @@ def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray]
                 timeout=int(getattr(config, "timeout_seconds", 600)) + 30,
                 check=False,
             )
+        except OSError as exc:
+            return PlateSolveResult(
+                success=False,
+                failure_reason="local_solve_field_launch_failed",
+                diagnostics={
+                    "backend": "solve-field",
+                    "command": command,
+                    "index_dir": str(index_path),
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+            )
         except subprocess.TimeoutExpired:
             return PlateSolveResult(
                 success=False,
