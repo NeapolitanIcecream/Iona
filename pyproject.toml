@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iona"
+version = "0.1.0"
+description = "Automatic astronomy-and-geometry MVP for estimating photo latitude/longitude from stars and building verticals."
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = { file = "LICENSE" }
+authors = [{ name = "Iona contributors" }]
+dependencies = [
+  "numpy>=1.24,<2.1",
+  "scipy>=1.10,<1.14",
+  "opencv-python>=4.8,<5",
+  "Pillow>=10,<12",
+  "exifread>=3.0",
+  "astropy>=5.3,<7",
+  "matplotlib>=3.7,<3.10",
+  "typer>=0.9,<1",
+  "pydantic>=2,<3",
+  "requests>=2.31",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.30"]
+
+[dependency-groups]
+dev = [
+  "coverage>=7.0",
+  "pytest>=8.0",
+]
+
+[project.scripts]
+iona = "iona.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["src", "tests"]
+
+[tool.cremona]
+targets = ["src", "tests"]
+exclude = [
+  ".git",
+  ".venv",
+  ".pytest_cache",
+  ".ruff_cache",
+  "*/__pycache__/*",
+]
+out_dir = "output/refactor-audit"
+baseline = "quality/refactor-baseline.json"
+
+[tool.cremona.history]
+lookback_days = 180
+min_shared_commits = 2
+coupling_ignore_commit_file_count = 25
+
+[tool.cremona.coverage]
+coverage_json = "coverage.json"

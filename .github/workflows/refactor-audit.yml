@@ -1,0 +1,37 @@
+name: Refactor Audit
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  cremona:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Generate coverage JSON
+        run: |
+          uv run coverage run -m pytest -q
+          uv run coverage json -o coverage.json
+
+      - name: Run Cremona audit
+        run: |
+          uvx --python 3.12 \
+            --from git+https://github.com/NeapolitanIcecream/cremona.git \
+            cremona scan . \
+            --coverage-json coverage.json \
+            --baseline quality/refactor-baseline.json \
+            --fail-on-regression
