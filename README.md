@@ -124,6 +124,7 @@ Verified locally:
 - `uv run pytest`
 - `uv run iona --help`
 - `uv run iona auto --help`
+- Cremona refactor audit against `quality/refactor-baseline.json`
 - Dry-run failure output with `--solver none`
 
 Not verified yet:
@@ -150,3 +151,20 @@ The tests are executable specs for the math and failure behavior:
 - Kabsch/Wahba camera-to-celestial rotation fitting.
 - Zenith RA/Dec to latitude/longitude conversion and wrap-around.
 - Pipeline failure diagnostics when solving is disabled.
+
+## Code Audit
+
+Iona uses [Cremona](https://github.com/NeapolitanIcecream/cremona) for
+structural-debt audits. Run it locally with:
+
+```bash
+uv run coverage run -m pytest -q
+uv run coverage json -o coverage.json
+uvx --python 3.12 \
+  --from git+https://github.com/NeapolitanIcecream/cremona.git \
+  cremona scan . \
+  --coverage-json coverage.json \
+  --baseline quality/refactor-baseline.json
+```
+
+See [docs/code-audit.md](docs/code-audit.md) for the baseline and CI workflow.

@@ -28,7 +28,10 @@ dependencies = [
 ui = ["streamlit>=1.30"]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = [
+  "coverage>=7.0",
+  "pytest>=8.0",
+]
 
 [project.scripts]
 iona = "iona.cli:main"
@@ -40,3 +43,27 @@ where = ["src"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["src", "tests"]
+
+[tool.cremona]
+targets = ["src", "tests"]
+exclude = [
+  ".git",
+  ".venv",
+  ".pytest_cache",
+  ".ruff_cache",
+  "*/__pycache__/*",
+]
+out_dir = "output/refactor-audit"
+baseline = "quality/refactor-baseline.json"
+
+[tool.cremona.history]
+lookback_days = 180
+min_shared_commits = 2
+coupling_ignore_commit_file_count = 25
+
+[tool.cremona.coverage]
+coverage_json = "coverage.json"
