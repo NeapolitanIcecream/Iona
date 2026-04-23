@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "purpose": "Minimum real-photo prototype set for Iona's sky, star, foreground-line, vanishing-point, and live plate-solve workflows.",
+  "timestamp_policy": "Source timestamps are treated as local camera times with the listed timezone_hint. Confirm original timezone metadata before using location errors as accuracy claims.",
+  "photos": [
+    {
+      "id": "astronomical_observatory_118127341",
+      "file": "astronomical_observatory_118127341.jpg",
+      "role": "target",
+      "reason": "Night sky with many stars plus an observatory building edge profile.",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Astronomical_Observatory_(118127341).jpeg",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/7/79/Astronomical_Observatory_%28118127341%29.jpeg",
+      "license": "CC BY 3.0",
+      "license_url": "https://creativecommons.org/licenses/by/3.0/",
+      "attribution": "Luca Di Santo",
+      "source_time": "2015-08-12T22:31:51",
+      "timezone_hint": "Europe/Rome",
+      "camera_location": {
+        "lat": 42.44632474,
+        "lon": 13.56039047
+      },
+      "local_image": {
+        "width": 2048,
+        "height": 1365,
+        "source_form": "original"
+      },
+      "cv_smoke_check": {
+        "sky_fraction": 0.531,
+        "star_count": 3112,
+        "line_count": 38,
+        "candidate_vertical_count": 6,
+        "vanishing_point_success": true,
+        "vanishing_point_inliers": 5
+      }
+    },
+    {
+      "id": "headlands_telescope_milky_way",
+      "file": "headlands_telescope_milky_way.jpg",
+      "role": "target",
+      "reason": "Milky Way sky with foreground platform, railing, and telescope geometry.",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Telescope_and_Milky_Way_at_Headlands_International_Dark_Sky_Park_MI_(54703999687).jpg",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/aa/Telescope_and_Milky_Way_at_Headlands_International_Dark_Sky_Park_MI_%2854703999687%29.jpg/1280px-Telescope_and_Milky_Way_at_Headlands_International_Dark_Sky_Park_MI_%2854703999687%29.jpg",
+      "license": "Public domain",
+      "license_url": "https://commons.wikimedia.org/wiki/File:Telescope_and_Milky_Way_at_Headlands_International_Dark_Sky_Park_MI_(54703999687).jpg",
+      "attribution": "radicalespresso",
+      "source_time": "2025-07-20T23:31:00",
+      "timezone_hint": "America/Detroit",
+      "camera_location": {
+        "lat": 45.778202,
+        "lon": -84.790762
+      },
+      "local_image": {
+        "width": 1280,
+        "height": 1700,
+        "source_form": "1280px Wikimedia derivative"
+      },
+      "cv_smoke_check": {
+        "sky_fraction": 0.229,
+        "star_count": 1686,
+        "line_count": 67,
+        "candidate_vertical_count": 15,
+        "vanishing_point_success": true,
+        "vanishing_point_inliers": 12
+      }
+    },
+    {
+      "id": "gazing_milky_way_blanco_telescope",
+      "file": "gazing_milky_way_blanco_telescope.jpg",
+      "role": "preferred_vertical_target",
+      "reason": "Milky Way sky over the Blanco telescope dome with strong observatory structure for vertical-vanishing-point estimation.",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Gazing_at_the_Milky_Way_(iotw2027a).jpg",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Gazing_at_the_Milky_Way_%28iotw2027a%29.jpg/1920px-Gazing_at_the_Milky_Way_%28iotw2027a%29.jpg",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "CTIO/NOIRLab/NSF/AURA/B. Tafreshi",
+      "source_time": "2015-07-18T09:33:00",
+      "timezone_hint": "UTC",
+      "time_note": "Wikimedia metadata lists DateTimeDigitized as 09:33, 18 July 2015 and DateTimeOriginal as 09:00, 1 July 2020. Treat this as a CV smoke image until the original capture time is confirmed.",
+      "camera_location": {
+        "lat": -30.169661,
+        "lon": -70.806525
+      },
+      "local_image": {
+        "width": 1920,
+        "height": 2880,
+        "source_form": "1920px Wikimedia derivative"
+      },
+      "cv_smoke_check": {
+        "sky_fraction": 0.307,
+        "star_count": 4669,
+        "line_count": 126,
+        "candidate_vertical_count": 70,
+        "vanishing_point_success": true,
+        "vanishing_point_inliers": 54
+      }
+    },
+    {
+      "id": "kosovo_skywatcher_milky_way",
+      "file": "kosovo_skywatcher_milky_way.jpg",
+      "role": "target",
+      "reason": "Dense star field with strong telescope structure lines for foreground geometry.",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Skywatcher_telescope_16_inch_and_the_Milky_Way_galaxy_in_Brod,_Dragash_-_Kosovo.jpg",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/Skywatcher_telescope_16_inch_and_the_Milky_Way_galaxy_in_Brod%2C_Dragash_-_Kosovo.jpg/1280px-Skywatcher_telescope_16_inch_and_the_Milky_Way_galaxy_in_Brod%2C_Dragash_-_Kosovo.jpg",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "attribution": "Astroclubkosova",
+      "source_time": "2025-06-22T00:07:27",
+      "timezone_hint": "Europe/Belgrade",
+      "camera_location": {
+        "lat": 41.950928,
+        "lon": 20.708039
+      },
+      "local_image": {
+        "width": 1280,
+        "height": 1707,
+        "source_form": "1280px Wikimedia derivative"
+      },
+      "cv_smoke_check": {
+        "sky_fraction": 0.531,
+        "star_count": 2644,
+        "line_count": 59,
+        "candidate_vertical_count": 33,
+        "vanishing_point_success": true,
+        "vanishing_point_inliers": 15
+      }
+    }
+  ]
+}

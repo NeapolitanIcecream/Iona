@@ -6,10 +6,10 @@ or coverage than it has.
 
 ## Verification Gaps
 
-- A live Astrometry.net run has not been verified with a real API key and sample
-  photo.
-- A full successful geolocation run has not been verified on a real photo.
-- Accuracy has not been measured on the target 1-3 known-location sample photos.
+- Live Astrometry.net and local `solve-field` runs have been verified on sample
+  photos. See `docs/prototype-results.md`.
+- Accuracy is still prototype-level. The best current sample is about 133 km
+  from ground truth, while another successful sample is about 1070 km off.
 - The current tests validate the math chain and failure diagnostics, but not
   external solver behavior or real night-scene CV quality.
 
@@ -30,9 +30,8 @@ or coverage than it has.
 
 ## Deferred Features
 
-- Local `solve-field` support is not implemented. `--solver solve-field`,
-  `--solver local`, and `--solver local-solve-field` return a structured
-  `local_solve_field_not_implemented` failure.
+- Local `solve-field` support requires external astrometry.net binaries and
+  suitable index files. The repository does not vendor FITS index files.
 - The Streamlit UI is not implemented. `src/iona/ui/streamlit_app.py`
   raises a clear error that points users back to `iona auto`.
 - The report module only has a minimal text summary. It does not generate a
@@ -50,4 +49,3 @@ or coverage than it has.
   if the run fails.
 - Add a regression test or fixture for any real failure mode that can be reduced
   to synthetic data.
-

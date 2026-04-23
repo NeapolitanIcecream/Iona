@@ -13,7 +13,7 @@ The automatic pipeline:
 
 1. Loads a photo and ignores any EXIF GPS tags.
 2. Estimates a sky mask and detects star candidates.
-3. Calls Astrometry.net for plate solving.
+3. Calls Astrometry.net or a local `solve-field` install for plate solving.
 4. Detects building line segments with OpenCV.
 5. Estimates a vertical vanishing point with RANSAC.
 6. Fits a camera-to-celestial rotation from WCS samples.
@@ -66,7 +66,8 @@ The CLI also accepts:
 ```
 
 Uploaded photos are sent to Astrometry.net when using the default solver. Use
-`--solver none` only for dry-run failure-path checks.
+`--solver none` only for dry-run failure-path checks. Use `--solver local` to
+run a local astrometry.net `solve-field` install.
 
 ## CLI Usage
 
@@ -77,6 +78,22 @@ uv run iona auto \
   --solver astrometry-net \
   --output ./result.json \
   --viz ./result.jpg
+```
+
+Local `solve-field` example:
+
+```bash
+ASTROMETRY_INDEX_DIR=~/.cache/iona/astrometry-indexes/4100 \
+ASTROMETRY_SCALE_LOW=40 \
+ASTROMETRY_SCALE_HIGH=90 \
+ASTROMETRY_SCALE_UNITS=degwidth \
+uv run iona auto \
+  --image examples/prototype_photos/headlands_telescope_milky_way.jpg \
+  --utc "2025-07-20T23:31:00" \
+  --timezone America/Detroit \
+  --solver local \
+  --timeout-seconds 120 \
+  --output /tmp/iona-local-headlands.json
 ```
 
 The JSON output includes:
@@ -96,7 +113,7 @@ src/iona/
   astronomy/       Sidereal time, RA/Dec vectors, geolocation formulas
   camera/          Pinhole intrinsics, image rays, rotation fitting
   cv/              Sky mask, star candidates, line detection, vanishing point
-  solver/          Astrometry.net wrapper and local solver placeholder
+  solver/          Astrometry.net wrapper and local solve-field backend
   pipeline/        End-to-end orchestration and result schema
   visualization/   Debug overlay rendering
   cli.py           iona auto command
@@ -108,7 +125,8 @@ tests/             Unit and synthetic behavior specs
 - Lens distortion is not corrected.
 - Camera intrinsics are approximate unless plate scale or useful EXIF is
   available.
-- Plate solving depends on Astrometry.net.
+- Plate solving depends on Astrometry.net or a local astrometry.net
+  `solve-field` install with suitable index files.
 - The sky/building segmentation is traditional CV, not a trained segmenter.
 - A failed or unstable vanishing point returns a failure instead of asking for
   manual annotation.
@@ -126,19 +144,15 @@ Verified locally:
 - `uv run iona auto --help`
 - Cremona refactor audit against `quality/refactor-baseline.json`
 - Dry-run failure output with `--solver none`
-
-Not verified yet:
-
-- A live Astrometry.net solve with a real API key and sample image.
-- A full successful real-photo geolocation run.
-- Accuracy on the target 1-3 known-location sample photos.
+- Live Astrometry.net solves on prototype photos.
+- Local `solve-field` solves on prototype photos using 4100-series index files.
+- Prototype accuracy results in [docs/prototype-results.md](docs/prototype-results.md).
 
 ## Deferred Features
 
-- `--solver astrometry-net` is the only implemented plate-solving backend.
 - `--solver none` is only for dry-run failure-path checks.
-- `--solver solve-field`, `--solver local`, and `--solver local-solve-field`
-  return a structured `local_solve_field_not_implemented` failure.
+- Local `solve-field` requires the external astrometry.net binaries and index
+  files; they are not vendored in this repository.
 - `src/iona/ui/streamlit_app.py` is a placeholder for a later UI phase.
 - `src/iona/visualization/report.py` only contains a minimal text summary.
 
