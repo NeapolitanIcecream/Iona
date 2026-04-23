@@ -13,7 +13,7 @@ from .preprocess import to_grayscale_float
 
 
 def _angle_distance_to_vertical(angle_rad: float) -> float:
-    return abs(math.atan2(math.sin(angle_rad - math.pi / 2.0), math.cos(angle_rad - math.pi / 2.0)))
+    return abs(math.asin(math.cos(angle_rad)))
 
 
 def _line_midpoint_inside_mask(line: LineSegment, mask: np.ndarray) -> bool:
@@ -72,8 +72,6 @@ def detect_building_lines(image: np.ndarray, sky_mask: np.ndarray) -> BuildingLi
     vertical_candidates = [
         line for line in lines if _angle_distance_to_vertical(line.angle_rad) <= math.radians(40)
     ]
-    if len(vertical_candidates) < 3:
-        vertical_candidates = sorted(lines, key=lambda line: line.length, reverse=True)[: max(3, len(lines))]
 
     confidence = bounded(min(len(vertical_candidates) / 12.0, 1.0) * 0.8 + min(len(lines) / 50.0, 1.0) * 0.2)
     warnings = []
@@ -90,4 +88,3 @@ def detect_building_lines(image: np.ndarray, sky_mask: np.ndarray) -> BuildingLi
             "min_length_px": min_len,
         },
     )
-

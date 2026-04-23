@@ -62,8 +62,10 @@ def test_pipeline_failure_result_contains_machine_readable_diagnostics(tmp_path)
     assert not result.success
     assert "plate_solve_failed" in result.failure_reasons
     assert "not_enough_stars" in result.failure_reasons
+    assert "line_detection_failed" in result.failure_reasons
     assert any(event.stage == "plate_solve" and event.status == "failed" for event in result.diagnostics)
     assert any(event.stage == "star_detection" and event.status == "failed" for event in result.diagnostics)
+    assert any(event.stage == "line_detection" and event.status == "failed" for event in result.diagnostics)
     assert result.quality["plate_solve"]["failure_reason"] == "plate_solver_disabled"
 
 

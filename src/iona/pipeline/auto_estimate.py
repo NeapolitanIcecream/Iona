@@ -23,6 +23,7 @@ from iona.cv.vanishing_point import estimate_vertical_vanishing_point
 from iona.exif import read_exif
 from iona.pipeline.result_schema import (
     IonaResult,
+    BuildingLineDetectionResult,
     PipelineEvent,
     PlateSolveResult,
     RotationFitResult,
@@ -136,6 +137,36 @@ def _quality_dict(**items: Any) -> Dict[str, Any]:
     return {key: value for key, value in items.items() if value is not None}
 
 
+def _record_line_detection(
+    lines: Optional[BuildingLineDetectionResult],
+    config: PipelineConfig,
+    diagnostics: List[PipelineEvent],
+    warnings: List[str],
+    failure_reasons: List[str],
+) -> bool:
+    if lines is None:
+        failure_reasons.append("line_detection_failed")
+        diagnostics.append(_event("line_detection", "failed", "Building line detection could not run"))
+        return False
+
+    warnings.extend(lines.warnings)
+    line_details = {**lines.diagnostics, "min_vertical_lines": config.min_vertical_lines}
+    if not lines.line_segments:
+        failure_reasons.append("line_detection_failed")
+        diagnostics.append(_event("line_detection", "failed", "No building lines detected", **line_details))
+        return False
+
+    if len(lines.candidate_vertical_lines) < config.min_vertical_lines:
+        failure_reasons.append("not_enough_vertical_lines")
+        diagnostics.append(
+            _event("line_detection", "failed", "Too few candidate vertical building lines", **line_details)
+        )
+        return False
+
+    diagnostics.append(_event("line_detection", "ok", "Building lines detected", **line_details))
+    return True
+
+
 def run_auto_pipeline(
     image_path: str,
     utc_time: datetime,
@@ -175,12 +206,7 @@ def run_auto_pipeline(
             diagnostics.append(_event("star_detection", "ok", "Star candidates detected", **star_details))
 
     lines = detect_building_lines(image, sky.sky_mask) if sky.sky_mask is not None else None
-    if lines:
-        warnings.extend(lines.warnings)
-        diagnostics.append(_event("line_detection", "ok", "Building lines detected", **lines.diagnostics))
-    else:
-        failure_reasons.append("line_detection_failed")
-        diagnostics.append(_event("line_detection", "failed", "Building line detection could not run"))
+    enough_vertical_lines = _record_line_detection(lines, config, diagnostics, warnings, failure_reasons)
 
     solver_image_path = save_rgb_image_temp(image)
     try:
@@ -220,7 +246,7 @@ def run_auto_pipeline(
     diagnostics.append(_event("intrinsics", "ok", "Camera intrinsics estimated", source=intrinsics.source))
 
     vp = None
-    if lines:
+    if lines and enough_vertical_lines:
         vp = estimate_vertical_vanishing_point(
             lines.candidate_vertical_lines,
             (height, width),
