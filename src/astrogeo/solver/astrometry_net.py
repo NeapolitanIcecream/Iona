@@ -7,6 +7,7 @@ plate-solve result when the service succeeds.
 from __future__ import annotations
 
 import json
+import re
 import time
 from io import BytesIO
 from pathlib import Path
@@ -71,16 +72,30 @@ class AstrometryNetClient:
     def wait_for_job(self, submission_id: int, timeout_seconds: int, poll_interval_seconds: float) -> int:
         deadline = time.monotonic() + timeout_seconds
         last_payload: Dict[str, Any] = {}
+        job_id: Optional[int] = None
+        last_info: Dict[str, Any] = {}
         while time.monotonic() < deadline:
-            response = self.session.get(f"{API_BASE}/submissions/{submission_id}", timeout=30)
-            response.raise_for_status()
-            payload = response.json()
-            last_payload = payload
-            jobs = [job for job in payload.get("jobs", []) if job]
-            if jobs:
-                return int(jobs[0])
+            if job_id is None:
+                response = self.session.get(f"{API_BASE}/submissions/{submission_id}", timeout=30)
+                response.raise_for_status()
+                payload = response.json()
+                last_payload = payload
+                jobs = [job for job in payload.get("jobs", []) if job]
+                if jobs:
+                    job_id = int(jobs[0])
+
+            if job_id is not None:
+                last_info = self.job_info(job_id)
+                status = str(last_info.get("status") or "").lower()
+                if status == "success":
+                    return job_id
+                if status in {"failure", "failed", "error"}:
+                    raise RuntimeError(f"Astrometry.net job failed: {last_info}")
+
             time.sleep(poll_interval_seconds)
-        raise TimeoutError(f"Astrometry.net submission timed out: {last_payload}")
+        raise TimeoutError(
+            f"Astrometry.net submission timed out: submission={last_payload}, job={last_info}"
+        )
 
     def job_info(self, job_id: int) -> Dict[str, Any]:
         response = self.session.get(f"{API_BASE}/jobs/{job_id}/info", timeout=30)
@@ -123,7 +138,7 @@ class AstrometryNetClient:
             pixel_scale_arcsec=_float_or_none(calibration.get("pixscale")),
             orientation_deg=_float_or_none(calibration.get("orientation")),
             matched_stars=_int_or_none(info.get("objects_in_field")),
-            residual_arcsec=_float_or_none(info.get("machine_tags", {}).get("residual")),
+            residual_arcsec=_extract_machine_tag_float(info.get("machine_tags"), "residual"),
             raw={"info": info, "submission_id": submission_id, "job_id": job_id},
             diagnostics={"backend": "astrometry-net", "attempted_image": image_path},
         )
@@ -145,6 +160,29 @@ def _int_or_none(value: Any) -> Optional[int]:
         return int(value)
     except Exception:
         return None
+
+
+def _extract_machine_tag_float(machine_tags: Any, key: str) -> Optional[float]:
+    if not machine_tags:
+        return None
+    normalized_key = key.lower()
+    if isinstance(machine_tags, dict):
+        return _float_or_none(machine_tags.get(key) or machine_tags.get(normalized_key))
+    if isinstance(machine_tags, str):
+        machine_tags = [machine_tags]
+    if isinstance(machine_tags, list):
+        for item in machine_tags:
+            if isinstance(item, dict):
+                value = item.get(key) or item.get(normalized_key) or item.get("value")
+                item_key = str(item.get("key") or item.get("name") or key).lower()
+                if item_key == normalized_key:
+                    return _float_or_none(value)
+                continue
+            text = str(item)
+            match = re.match(rf"\s*{re.escape(normalized_key)}\s*[:=]\s*([-+]?\d+(?:\.\d+)?)", text, re.I)
+            if match:
+                return _float_or_none(match.group(1))
+    return None
 
 
 def _make_masked_variant(image_path: str, sky_mask: np.ndarray) -> str:
