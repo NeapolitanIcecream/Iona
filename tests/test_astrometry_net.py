@@ -1,7 +1,15 @@
-from pathlib import Path
+from io import BytesIO
 
 from astrogeo.config import SolverConfig
 from astrogeo.solver.astrometry_net import AstrometryNetClient
+
+
+def _fits_header_bytes() -> bytes:
+    from astropy.io import fits
+
+    buffer = BytesIO()
+    fits.PrimaryHDU().writeto(buffer)
+    return buffer.getvalue()
 
 
 class FakeResponse:
@@ -18,8 +26,9 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self) -> None:
+    def __init__(self, valid_wcs: bool = True) -> None:
         self.job_info_calls = 0
+        self.valid_wcs = valid_wcs
 
     def post(self, url, **kwargs):
         if url.endswith("/upload"):
@@ -47,6 +56,8 @@ class FakeSession:
                 }
             )
         if url.endswith("/wcs_file/42"):
+            if self.valid_wcs:
+                return FakeResponse(content=_fits_header_bytes())
             return FakeResponse(content=b"not-a-valid-fits-file")
         raise AssertionError(f"Unexpected URL: {url}")
 
@@ -87,3 +98,19 @@ def test_astrometry_client_parses_residual_from_machine_tags_list(tmp_path) -> N
     assert result.success
     assert result.residual_arcsec == 0.73
 
+
+def test_astrometry_client_rejects_non_fits_wcs_download(tmp_path) -> None:
+    image_path = tmp_path / "image.jpg"
+    image_path.write_bytes(b"fake")
+
+    result = AstrometryNetClient("api-key", session=FakeSession(valid_wcs=False)).solve(
+        str(image_path),
+        SolverConfig(
+            astrometry_api_key="api-key",
+            timeout_seconds=5,
+            poll_interval_seconds=0,
+        ),
+    )
+
+    assert not result.success
+    assert result.failure_reason == "invalid_wcs_header"

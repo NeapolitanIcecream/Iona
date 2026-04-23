@@ -110,8 +110,8 @@ class AstrometryNetClient:
 
             with fits.open(BytesIO(response.content)) as hdul:
                 return dict(hdul[0].header)
-        except Exception:
-            return {"RAW_WCS": response.text}
+        except Exception as exc:
+            raise RuntimeError("Astrometry.net WCS download was not a valid FITS header.") from exc
 
     def solve(self, image_path: str, config: SolverConfig) -> PlateSolveResult:
         submission_id = self.upload(image_path)
@@ -129,7 +129,19 @@ class AstrometryNetClient:
                 diagnostics={"submission_id": submission_id, "job_id": job_id},
             )
         calibration = info.get("calibration") or {}
-        header = self.wcs_header(job_id)
+        try:
+            header = self.wcs_header(job_id)
+        except Exception as exc:
+            return PlateSolveResult(
+                success=False,
+                failure_reason="invalid_wcs_header",
+                raw=info,
+                diagnostics={
+                    "submission_id": submission_id,
+                    "job_id": job_id,
+                    "error": str(exc),
+                },
+            )
         return PlateSolveResult(
             success=True,
             wcs_header=header,
