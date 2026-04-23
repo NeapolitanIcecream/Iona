@@ -25,6 +25,7 @@ from iona.solver.local_solve_field import solve_with_local_solve_field
 
 API_BASE = "https://nova.astrometry.net/api"
 PUBLIC_BASE = "https://nova.astrometry.net"
+RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class AstrometryNetClient:
@@ -48,35 +49,40 @@ class AstrometryNetClient:
     def _record_retry(self, operation: str, attempt: int, reason: str) -> None:
         self.retry_events.append({"operation": operation, "attempt": attempt, "reason": reason})
 
+    def _sleep_before_retry(self, operation: str, attempt: int, reason: str) -> None:
+        self._record_retry(operation, attempt, reason)
+        time.sleep(self._retry_delay(attempt))
+
+    def _can_retry(self, attempt: int) -> bool:
+        return attempt < self.request_max_attempts
+
+    def _retry_request_exception(self, operation: str, attempt: int, exc: requests.RequestException) -> bool:
+        if not self._can_retry(attempt):
+            return False
+        reason = _request_exception_retry_reason(exc)
+        if reason is None:
+            return False
+        self._sleep_before_retry(operation, attempt, reason)
+        return True
+
     def _request_with_retries(self, operation: str, send_request: Any) -> requests.Response:
-        retry_statuses = {429, 500, 502, 503, 504}
-        last_error: Optional[Exception] = None
         for attempt in range(1, self.request_max_attempts + 1):
             try:
                 response = send_request()
-                status_code = getattr(response, "status_code", None)
-                if status_code in retry_statuses and attempt < self.request_max_attempts:
-                    self._record_retry(operation, attempt, f"http_{status_code}")
-                    time.sleep(self._retry_delay(attempt))
+                retry_reason = _response_retry_reason(response)
+                if retry_reason and self._can_retry(attempt):
+                    self._sleep_before_retry(operation, attempt, retry_reason)
                     continue
                 response.raise_for_status()
                 return response
             except requests.HTTPError as exc:
-                status_code = exc.response.status_code if exc.response is not None else None
-                if status_code in retry_statuses and attempt < self.request_max_attempts:
-                    last_error = exc
-                    self._record_retry(operation, attempt, f"http_{status_code}")
-                    time.sleep(self._retry_delay(attempt))
+                if self._retry_request_exception(operation, attempt, exc):
                     continue
                 raise
             except requests.RequestException as exc:
-                if attempt >= self.request_max_attempts:
-                    raise
-                last_error = exc
-                self._record_retry(operation, attempt, type(exc).__name__)
-                time.sleep(self._retry_delay(attempt))
-        if last_error is not None:
-            raise last_error
+                if self._retry_request_exception(operation, attempt, exc):
+                    continue
+                raise
         raise RuntimeError(f"Astrometry.net request failed without a response: {operation}")
 
     def login(self) -> str:
@@ -237,6 +243,20 @@ def _int_or_none(value: Any) -> Optional[int]:
         return int(value)
     except Exception:
         return None
+
+
+def _response_retry_reason(response: requests.Response) -> Optional[str]:
+    status_code = getattr(response, "status_code", None)
+    if status_code in RETRY_STATUS_CODES:
+        return f"http_{status_code}"
+    return None
+
+
+def _request_exception_retry_reason(exc: requests.RequestException) -> Optional[str]:
+    if not isinstance(exc, requests.HTTPError):
+        return type(exc).__name__
+    response = getattr(exc, "response", None)
+    return _response_retry_reason(response) if response is not None else None
 
 
 def _extract_machine_tag_float(machine_tags: Any, key: str) -> Optional[float]:

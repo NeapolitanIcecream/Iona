@@ -33,7 +33,11 @@ def test_local_solve_field_returns_wcs_from_solve_field_outputs(tmp_path, monkey
     index_dir = tmp_path / "indexes"
     index_dir.mkdir()
 
-    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+    def fake_run(cmd, capture_output, text, timeout, check):
+        assert capture_output is True
+        assert text is True
+        assert timeout == 60
+        assert check is False
         out_dir = Path(cmd[cmd.index("--dir") + 1])
         wcs_path = Path(cmd[cmd.index("--wcs") + 1])
         solved_path = Path(cmd[cmd.index("--solved") + 1])
@@ -96,7 +100,11 @@ def test_local_solve_field_reports_timeout(tmp_path, monkeypatch) -> None:
     index_dir = tmp_path / "indexes"
     index_dir.mkdir()
 
-    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+    def fake_run(cmd, capture_output, text, timeout, check):
+        assert capture_output is True
+        assert text is True
+        assert timeout == 37
+        assert check is False
         raise local_solve_field.subprocess.TimeoutExpired(cmd=cmd, timeout=timeout)
 
     monkeypatch.setattr(local_solve_field.subprocess, "run", fake_run)
