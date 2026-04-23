@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 from PIL import ExifTags, Image
 
-from astrogeo.pipeline.result_schema import ExifInfo
+from iona.pipeline.result_schema import ExifInfo
 
 
 def _ratio_to_float(value: Any) -> Optional[float]:

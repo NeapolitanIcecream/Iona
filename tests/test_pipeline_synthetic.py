@@ -3,17 +3,17 @@ from datetime import datetime, timezone
 import numpy as np
 from PIL import Image
 
-from astrogeo.astronomy.coordinates import radec_to_unit_vector
-from astrogeo.astronomy.geolocation import (
+from iona.astronomy.coordinates import radec_to_unit_vector
+from iona.astronomy.geolocation import (
     estimate_location_from_zenith,
     zenith_radec_from_location,
 )
-from astrogeo.camera.intrinsics import estimate_camera_intrinsics
-from astrogeo.camera.rotation_fit import fit_rotation_kabsch
-from astrogeo.config import PipelineConfig, SolverConfig
-from astrogeo.pipeline import auto_estimate
-from astrogeo.pipeline.auto_estimate import estimate_zenith_radec, run_auto_pipeline
-from astrogeo.pipeline.result_schema import PlateSolveResult, VanishingPointResult
+from iona.camera.intrinsics import estimate_camera_intrinsics
+from iona.camera.rotation_fit import fit_rotation_kabsch
+from iona.config import PipelineConfig, SolverConfig
+from iona.pipeline import auto_estimate
+from iona.pipeline.auto_estimate import estimate_zenith_radec, run_auto_pipeline
+from iona.pipeline.result_schema import PlateSolveResult, VanishingPointResult
 
 
 def test_synthetic_zenith_chain_recovers_known_location() -> None:

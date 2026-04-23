@@ -6,7 +6,7 @@ from typing import List
 
 import numpy as np
 
-from astrogeo.pipeline.result_schema import SkyMaskResult, bounded
+from iona.pipeline.result_schema import SkyMaskResult, bounded
 
 from .preprocess import to_grayscale_float
 

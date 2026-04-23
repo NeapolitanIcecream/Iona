@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from astrogeo.astronomy.coordinates import normalize_vector
-from astrogeo.pipeline.result_schema import CameraIntrinsics
+from iona.astronomy.coordinates import normalize_vector
+from iona.pipeline.result_schema import CameraIntrinsics
 
 
 def image_point_to_camera_ray(point_h: np.ndarray, intrinsics: CameraIntrinsics) -> np.ndarray:

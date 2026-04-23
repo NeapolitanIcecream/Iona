@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from astrogeo.pipeline.result_schema import LocationEstimate
+from iona.pipeline.result_schema import LocationEstimate
 
 from .coordinates import normalize_angle_180, normalize_angle_360
 from .sidereal import greenwich_mean_sidereal_time_deg

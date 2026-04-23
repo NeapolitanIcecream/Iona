@@ -7,9 +7,9 @@ from typing import Iterable, List, Sequence, Tuple
 
 import numpy as np
 
-from astrogeo.astronomy.coordinates import normalize_vector, radec_to_unit_vector
-from astrogeo.camera.rays import image_point_to_camera_ray
-from astrogeo.pipeline.result_schema import CameraIntrinsics, RotationFitResult
+from iona.astronomy.coordinates import normalize_vector, radec_to_unit_vector
+from iona.camera.rays import image_point_to_camera_ray
+from iona.pipeline.result_schema import CameraIntrinsics, RotationFitResult
 
 
 def fit_rotation_kabsch(camera_vectors: np.ndarray, celestial_vectors: np.ndarray) -> RotationFitResult:

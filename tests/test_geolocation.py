@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
-from astrogeo.astronomy.coordinates import normalize_angle_180
-from astrogeo.astronomy.geolocation import (
+from iona.astronomy.coordinates import normalize_angle_180
+from iona.astronomy.geolocation import (
     estimate_location_from_zenith,
     longitude_error_from_time_seconds,
     zenith_radec_from_location,

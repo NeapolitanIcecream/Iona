@@ -7,7 +7,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from astrogeo.pipeline.result_schema import LineSegment, VanishingPointResult, bounded
+from iona.pipeline.result_schema import LineSegment, VanishingPointResult, bounded
 
 
 def line_intersection_homogeneous(line_a: LineSegment, line_b: LineSegment) -> np.ndarray:

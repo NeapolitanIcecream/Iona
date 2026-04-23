@@ -2,7 +2,7 @@ import math
 
 import numpy as np
 
-from astrogeo.camera.rotation_fit import fit_rotation_kabsch
+from iona.camera.rotation_fit import fit_rotation_kabsch
 
 
 def _rotation_z(angle_deg: float) -> np.ndarray:

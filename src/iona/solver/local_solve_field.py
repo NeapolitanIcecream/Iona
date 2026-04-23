@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from astrogeo.pipeline.result_schema import PlateSolveResult
+from iona.pipeline.result_schema import PlateSolveResult
 
 
 def solve_with_local_solve_field(*args, **kwargs) -> PlateSolveResult:

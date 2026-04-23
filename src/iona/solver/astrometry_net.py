@@ -18,9 +18,9 @@ import numpy as np
 import requests
 from PIL import Image
 
-from astrogeo.config import SolverConfig
-from astrogeo.pipeline.result_schema import PlateSolveResult
-from astrogeo.solver.local_solve_field import solve_with_local_solve_field
+from iona.config import SolverConfig
+from iona.pipeline.result_schema import PlateSolveResult
+from iona.solver.local_solve_field import solve_with_local_solve_field
 
 
 API_BASE = "https://nova.astrometry.net/api"

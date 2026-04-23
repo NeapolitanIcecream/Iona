@@ -1,10 +1,10 @@
 import numpy as np
 
-from astrogeo.cv.vanishing_point import (
+from iona.cv.vanishing_point import (
     estimate_vertical_vanishing_point,
     line_intersection_homogeneous,
 )
-from astrogeo.pipeline.result_schema import LineSegment
+from iona.pipeline.result_schema import LineSegment
 
 
 def test_parallel_vertical_lines_produce_vanishing_point_at_infinity() -> None:

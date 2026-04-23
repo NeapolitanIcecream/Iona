@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Optional, Tuple
 
-from astrogeo.pipeline.result_schema import CameraIntrinsics, ExifInfo, PlateSolveResult
+from iona.pipeline.result_schema import CameraIntrinsics, ExifInfo, PlateSolveResult
 
 
 def _focal_pixels_from_35mm(width: int, height: int, focal_35mm: float) -> float:

@@ -1,4 +1,4 @@
-"""Command-line interface for AstroGeo Lite Auto."""
+"""Command-line interface for Iona."""
 
 from __future__ import annotations
 
@@ -7,15 +7,15 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from astrogeo.config import PipelineConfig
-from astrogeo.cv.line_detection import detect_building_lines
-from astrogeo.cv.preprocess import load_rgb_image
-from astrogeo.cv.sky_mask import estimate_sky_mask
-from astrogeo.cv.star_detection import detect_star_candidates
-from astrogeo.cv.vanishing_point import estimate_vertical_vanishing_point
-from astrogeo.pipeline.auto_estimate import run_auto_pipeline
-from astrogeo.time_utils import parse_utc_datetime
-from astrogeo.visualization.overlays import save_debug_overlay
+from iona.config import PipelineConfig
+from iona.cv.line_detection import detect_building_lines
+from iona.cv.preprocess import load_rgb_image
+from iona.cv.sky_mask import estimate_sky_mask
+from iona.cv.star_detection import detect_star_candidates
+from iona.cv.vanishing_point import estimate_vertical_vanishing_point
+from iona.pipeline.auto_estimate import run_auto_pipeline
+from iona.time_utils import parse_utc_datetime
+from iona.visualization.overlays import save_debug_overlay
 
 try:
     import typer
@@ -58,11 +58,11 @@ def _run_auto(
 
 
 if typer is not None:
-    app = typer.Typer(help="AstroGeo Lite Auto CLI.")
+    app = typer.Typer(help="Iona CLI.")
 
     @app.callback()
     def cli() -> None:
-        """Run AstroGeo commands."""
+        """Run Iona commands."""
 
     @app.command()
     def auto(
@@ -83,7 +83,7 @@ if typer is not None:
 else:
 
     def main() -> None:
-        parser = argparse.ArgumentParser(prog="astrogeo")
+        parser = argparse.ArgumentParser(prog="iona")
         sub = parser.add_subparsers(dest="command", required=True)
         auto_parser = sub.add_parser("auto")
         auto_parser.add_argument("--image", required=True)

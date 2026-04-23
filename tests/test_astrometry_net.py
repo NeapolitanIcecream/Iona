@@ -1,7 +1,7 @@
 from io import BytesIO
 
-from astrogeo.config import SolverConfig
-from astrogeo.solver.astrometry_net import AstrometryNetClient
+from iona.config import SolverConfig
+from iona.solver.astrometry_net import AstrometryNetClient
 
 
 def _fits_header_bytes() -> bytes:

@@ -1,4 +1,4 @@
-"""AstroGeo Lite Auto package."""
+"""Iona package."""
 
 __all__ = ["__version__"]
 

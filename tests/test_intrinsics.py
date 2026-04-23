@@ -1,7 +1,7 @@
 import numpy as np
 
-from astrogeo.camera.intrinsics import estimate_camera_intrinsics
-from astrogeo.camera.rays import image_point_to_camera_ray
+from iona.camera.intrinsics import estimate_camera_intrinsics
+from iona.camera.rays import image_point_to_camera_ray
 
 
 def test_image_center_maps_to_forward_camera_ray() -> None:
@@ -13,7 +13,7 @@ def test_image_center_maps_to_forward_camera_ray() -> None:
 
 
 def test_plate_scale_estimates_focal_pixels() -> None:
-    from astrogeo.pipeline.result_schema import PlateSolveResult
+    from iona.pipeline.result_schema import PlateSolveResult
 
     plate = PlateSolveResult(success=True, pixel_scale_arcsec=20.6265)
     intrinsics = estimate_camera_intrinsics((100, 200), plate_result=plate)

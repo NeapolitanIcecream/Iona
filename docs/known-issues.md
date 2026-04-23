@@ -33,8 +33,8 @@ or coverage than it has.
 - Local `solve-field` support is not implemented. `--solver solve-field`,
   `--solver local`, and `--solver local-solve-field` return a structured
   `local_solve_field_not_implemented` failure.
-- The Streamlit UI is not implemented. `src/astrogeo/ui/streamlit_app.py`
-  raises a clear error that points users back to `astrogeo auto`.
+- The Streamlit UI is not implemented. `src/iona/ui/streamlit_app.py`
+  raises a clear error that points users back to `iona auto`.
 - The report module only has a minimal text summary. It does not generate a
   full HTML or PDF explanation report.
 - Error propagation and Monte Carlo uncertainty estimates are not implemented.
@@ -43,7 +43,7 @@ or coverage than it has.
 
 ## Next Validation Tasks
 
-- Run `astrogeo auto` on one real sample photo with an Astrometry.net API key.
+- Run `iona auto` on one real sample photo with an Astrometry.net API key.
 - Compare the estimated location with the known true location, without using
   EXIF GPS.
 - Save the input characteristics, output JSON, debug overlay, and failure mode

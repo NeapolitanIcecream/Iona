@@ -1,6 +1,6 @@
-# AstroGeo Lite Auto
+# Iona
 
-AstroGeo Lite Auto is a personal-research MVP that tries to estimate where a
+Iona is a personal-research MVP that tries to estimate where a
 night photo was taken from stars and building geometry.
 
 The first version is intentionally small. It targets 1-3 high-quality sample
@@ -71,7 +71,7 @@ Uploaded photos are sent to Astrometry.net when using the default solver. Use
 ## CLI Usage
 
 ```bash
-uv run astrogeo auto \
+uv run iona auto \
   --image ./sample.jpg \
   --utc "2026-01-01T12:34:56Z" \
   --solver astrometry-net \
@@ -92,14 +92,14 @@ The JSON output includes:
 ## Project Structure
 
 ```text
-src/astrogeo/
+src/iona/
   astronomy/       Sidereal time, RA/Dec vectors, geolocation formulas
   camera/          Pinhole intrinsics, image rays, rotation fitting
   cv/              Sky mask, star candidates, line detection, vanishing point
   solver/          Astrometry.net wrapper and local solver placeholder
   pipeline/        End-to-end orchestration and result schema
   visualization/   Debug overlay rendering
-  cli.py           astrogeo auto command
+  cli.py           iona auto command
 tests/             Unit and synthetic behavior specs
 ```
 
@@ -122,8 +122,8 @@ Verified locally:
 
 - `uv sync --group dev`
 - `uv run pytest`
-- `uv run astrogeo --help`
-- `uv run astrogeo auto --help`
+- `uv run iona --help`
+- `uv run iona auto --help`
 - Dry-run failure output with `--solver none`
 
 Not verified yet:
@@ -138,8 +138,8 @@ Not verified yet:
 - `--solver none` is only for dry-run failure-path checks.
 - `--solver solve-field`, `--solver local`, and `--solver local-solve-field`
   return a structured `local_solve_field_not_implemented` failure.
-- `src/astrogeo/ui/streamlit_app.py` is a placeholder for a later UI phase.
-- `src/astrogeo/visualization/report.py` only contains a minimal text summary.
+- `src/iona/ui/streamlit_app.py` is a placeholder for a later UI phase.
+- `src/iona/visualization/report.py` only contains a minimal text summary.
 
 ## Development Notes
 

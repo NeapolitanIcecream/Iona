@@ -8,7 +8,7 @@ from typing import Optional
 import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 
-from astrogeo.pipeline.result_schema import (
+from iona.pipeline.result_schema import (
     BuildingLineDetectionResult,
     SkyMaskResult,
     StarDetectionResult,

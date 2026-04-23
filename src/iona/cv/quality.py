@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from astrogeo.pipeline.result_schema import bounded, confidence_label
+from iona.pipeline.result_schema import bounded, confidence_label
 
 
 def aggregate_confidence(scores: Iterable[float], hard_failed: bool = False) -> str:

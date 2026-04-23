@@ -1,4 +1,4 @@
-"""End-to-end automatic AstroGeo pipeline."""
+"""End-to-end automatic Iona pipeline."""
 
 from __future__ import annotations
 
@@ -8,27 +8,27 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from astrogeo.astronomy.coordinates import radec_to_unit_vector, unit_vector_to_radec
-from astrogeo.astronomy.geolocation import estimate_location_from_zenith
-from astrogeo.camera.intrinsics import estimate_camera_intrinsics
-from astrogeo.camera.rays import image_point_to_camera_ray
-from astrogeo.camera.rotation_fit import fit_camera_to_celestial_rotation
-from astrogeo.config import PipelineConfig
-from astrogeo.cv.line_detection import detect_building_lines
-from astrogeo.cv.preprocess import load_rgb_image, save_rgb_image_temp
-from astrogeo.cv.quality import aggregate_confidence
-from astrogeo.cv.sky_mask import estimate_sky_mask
-from astrogeo.cv.star_detection import detect_star_candidates
-from astrogeo.cv.vanishing_point import estimate_vertical_vanishing_point
-from astrogeo.exif import read_exif
-from astrogeo.pipeline.result_schema import (
-    AstroGeoResult,
+from iona.astronomy.coordinates import radec_to_unit_vector, unit_vector_to_radec
+from iona.astronomy.geolocation import estimate_location_from_zenith
+from iona.camera.intrinsics import estimate_camera_intrinsics
+from iona.camera.rays import image_point_to_camera_ray
+from iona.camera.rotation_fit import fit_camera_to_celestial_rotation
+from iona.config import PipelineConfig
+from iona.cv.line_detection import detect_building_lines
+from iona.cv.preprocess import load_rgb_image, save_rgb_image_temp
+from iona.cv.quality import aggregate_confidence
+from iona.cv.sky_mask import estimate_sky_mask
+from iona.cv.star_detection import detect_star_candidates
+from iona.cv.vanishing_point import estimate_vertical_vanishing_point
+from iona.exif import read_exif
+from iona.pipeline.result_schema import (
+    IonaResult,
     PipelineEvent,
     PlateSolveResult,
     RotationFitResult,
     ZenithEstimate,
 )
-from astrogeo.solver.astrometry_net import solve_plate
+from iona.solver.astrometry_net import solve_plate
 
 
 def _event(stage: str, status: str, message: str, **details: Any) -> PipelineEvent:
@@ -140,7 +140,7 @@ def run_auto_pipeline(
     image_path: str,
     utc_time: datetime,
     config: PipelineConfig,
-) -> AstroGeoResult:
+) -> IonaResult:
     diagnostics: List[PipelineEvent] = []
     warnings: List[str] = []
     failure_reasons: List[str] = []
@@ -328,7 +328,7 @@ def run_auto_pipeline(
         ],
         hard_failed=hard_failed,
     )
-    return AstroGeoResult(
+    return IonaResult(
         success=location is not None and not failure_reasons,
         estimated_location=location,
         confidence=confidence,

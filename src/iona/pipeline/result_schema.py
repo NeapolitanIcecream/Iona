@@ -1,4 +1,4 @@
-"""Dataclasses shared by the AstroGeo pipeline.
+"""Dataclasses shared by the Iona pipeline.
 
 The schema intentionally keeps diagnostics machine-readable so the CLI JSON can
 explain failure paths without asking the user to annotate the image.
@@ -243,7 +243,7 @@ class PipelineEvent:
 
 
 @dataclass
-class AstroGeoResult:
+class IonaResult:
     success: bool
     estimated_location: Optional[LocationEstimate]
     confidence: str

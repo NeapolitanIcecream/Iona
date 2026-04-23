@@ -4,5 +4,5 @@ from __future__ import annotations
 
 
 def main() -> None:
-    raise RuntimeError("Streamlit UI is planned for a later phase. Use `astrogeo auto` for the MVP.")
+    raise RuntimeError("Streamlit UI is planned for a later phase. Use `iona auto` for the MVP.")
 
