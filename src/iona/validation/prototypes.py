@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional
 
+from PIL import Image, UnidentifiedImageError
+
 from iona.config import PipelineConfig
 from iona.pipeline.auto_estimate import run_auto_pipeline
 from iona.pipeline.result_schema import IonaResult
@@ -22,13 +24,41 @@ LOCAL_SOLVERS = {"solve-field", "local", "local-solve-field"}
 
 def default_manifest_path() -> Path:
     source_manifest = Path(__file__).resolve().parents[3] / "examples" / "prototype_photos" / "manifest.json"
-    if source_manifest.is_file():
-        return source_manifest
-    return packaged_manifest_path()
+    return _preferred_manifest_path(source_manifest, packaged_manifest_path())
 
 
 def packaged_manifest_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "prototype_photos" / "manifest.json"
+
+
+def _preferred_manifest_path(source_manifest: Path, packaged_manifest: Path) -> Path:
+    if source_manifest.is_file() and _manifest_photo_assets_available(source_manifest):
+        return source_manifest
+    return packaged_manifest
+
+
+def _manifest_photo_assets_available(manifest_path: Path) -> bool:
+    try:
+        manifest = load_prototype_manifest(manifest_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+
+    for photo in manifest["photos"]:
+        file_name = photo.get("file")
+        if not isinstance(file_name, str) or not file_name:
+            return False
+        if not _is_decodable_image_file(manifest_path.parent / file_name):
+            return False
+    return True
+
+
+def _is_decodable_image_file(image_path: Path) -> bool:
+    try:
+        with Image.open(image_path) as image:
+            image.verify()
+    except (OSError, UnidentifiedImageError):
+        return False
+    return True
 
 
 def load_prototype_manifest(path: str | Path) -> Dict[str, Any]:
@@ -254,6 +284,8 @@ def _observatory_expectation(photo: Mapping[str, Any]) -> Dict[str, str]:
 
 
 def _solver_failure_expectation(photo: Mapping[str, Any]) -> Dict[str, str]:
+    if photo["status"] == "skipped":
+        return {"status": "skipped", "reason": "benchmark_not_run"}
     if photo["status"] == "failed" and "solver_timeout" in photo.get("failure_reasons", []):
         return {"status": "passed", "reason": "solver_timeout_recorded"}
     return {"status": "passed", "reason": "no_expected_timeout_required"}

@@ -9,6 +9,7 @@ from PIL import Image
 from iona.config import PipelineConfig, SolverConfig
 from iona.pipeline.result_schema import IonaResult, LocationEstimate
 from iona.validation.prototypes import (
+    _preferred_manifest_path,
     default_manifest_path,
     haversine_distance_km,
     load_prototype_manifest,
@@ -77,6 +78,26 @@ def test_packaged_fallback_manifest_references_packaged_images() -> None:
         assert image_path.is_file()
         with Image.open(image_path) as image:
             assert image.format == "JPEG"
+
+
+def test_default_manifest_falls_back_when_source_images_are_lfs_pointers(tmp_path) -> None:
+    source_dir = tmp_path / "source"
+    packaged_dir = tmp_path / "packaged"
+    source_dir.mkdir()
+    packaged_dir.mkdir()
+    source_manifest = Path(_write_manifest(source_dir, "sample.jpg"))
+    packaged_manifest = Path(_write_manifest(packaged_dir, "sample.jpg"))
+    (source_dir / "sample.jpg").write_text(
+        "version https://git-lfs.github.com/spec/v1\n"
+        "oid sha256:abcdef\n"
+        "size 123\n",
+        encoding="utf-8",
+    )
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(packaged_dir / "sample.jpg")
+
+    selected_manifest = _preferred_manifest_path(source_manifest, packaged_manifest)
+
+    assert selected_manifest == packaged_manifest
 
 
 def test_validate_prototype_manifest_skips_when_local_solver_is_unavailable(tmp_path) -> None:
@@ -148,6 +169,41 @@ def test_skipped_observatory_expectation_counts_as_skipped(tmp_path) -> None:
                         "source_time": "2026-01-01T12:00:00",
                         "timezone_hint": "UTC",
                         "camera_location": {"lat": 42.4463, "lon": 13.5604},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    validation = validate_prototype_manifest(
+        manifest_path,
+        config=PipelineConfig(
+            solver=SolverConfig(solver="local", local_solve_field_path=None, local_index_dir=None)
+        ),
+    )
+
+    assert validation["photos"][0]["status"] == "skipped"
+    assert validation["photos"][0]["expectation"]["status"] == "skipped"
+    assert validation["summary"]["expectations_skipped"] == 1
+    assert validation["summary"]["expectations_passed"] == 0
+
+
+def test_skipped_solver_failure_expectation_counts_as_skipped(tmp_path) -> None:
+    image_path = tmp_path / "blanco.jpg"
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "photos": [
+                    {
+                        "id": "gazing_milky_way_blanco_telescope",
+                        "file": image_path.name,
+                        "source_time": "2026-01-01T12:00:00",
+                        "timezone_hint": "UTC",
+                        "camera_location": {"lat": -30.1691, "lon": -70.8046},
                     }
                 ],
             }
