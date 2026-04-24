@@ -245,6 +245,8 @@ def _headlands_expectation(photo: Mapping[str, Any]) -> Dict[str, str]:
 
 
 def _observatory_expectation(photo: Mapping[str, Any]) -> Dict[str, str]:
+    if photo["status"] == "skipped":
+        return {"status": "skipped", "reason": "benchmark_not_run"}
     error = photo.get("estimated_error_km")
     if photo["status"] == "success" and isinstance(error, (int, float)) and error > 500 and photo.get("confidence") == "high":
         return {"status": "failed", "reason": "large_error_must_not_be_high_confidence"}

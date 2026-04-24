@@ -133,6 +133,41 @@ def test_validate_prototype_manifest_skips_when_solver_path_is_stale(tmp_path) -
     assert validation["photos"][0]["skip_reason"] == "missing_local_solve_field_binary"
 
 
+def test_skipped_observatory_expectation_counts_as_skipped(tmp_path) -> None:
+    image_path = tmp_path / "observatory.jpg"
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "photos": [
+                    {
+                        "id": "astronomical_observatory_118127341",
+                        "file": image_path.name,
+                        "source_time": "2026-01-01T12:00:00",
+                        "timezone_hint": "UTC",
+                        "camera_location": {"lat": 42.4463, "lon": 13.5604},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    validation = validate_prototype_manifest(
+        manifest_path,
+        config=PipelineConfig(
+            solver=SolverConfig(solver="local", local_solve_field_path=None, local_index_dir=None)
+        ),
+    )
+
+    assert validation["photos"][0]["status"] == "skipped"
+    assert validation["photos"][0]["expectation"]["status"] == "skipped"
+    assert validation["summary"]["expectations_skipped"] == 1
+    assert validation["summary"]["expectations_passed"] == 0
+
+
 def test_validate_prototype_manifest_computes_benchmark_error_with_fake_runner(tmp_path) -> None:
     image_path = tmp_path / "sample.jpg"
     Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
