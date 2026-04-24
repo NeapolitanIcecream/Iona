@@ -22,7 +22,7 @@ class _FakeNoGrad:
     def __enter__(self):
         return None
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, *_args):
         return False
 
 
@@ -33,10 +33,10 @@ class _FakeTorch:
 
 
 class _FakeProcessor:
-    def __call__(self, images, return_tensors):  # noqa: ARG002
+    def __call__(self, **_kwargs):
         return {}
 
-    def post_process_semantic_segmentation(self, outputs, target_sizes):  # noqa: ARG002
+    def post_process_semantic_segmentation(self, *_args, **_kwargs):
         labels = np.zeros((8, 10), dtype=np.int64)
         labels[:4, :] = 2
         labels[4:, :6] = 1

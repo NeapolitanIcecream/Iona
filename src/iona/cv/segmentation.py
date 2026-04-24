@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Optional, Tuple
 
 import numpy as np
@@ -30,6 +31,15 @@ BUILDING_LABELS = {
     "door",
 }
 _SEGFORMER_MODEL_CACHE: Dict[str, Tuple[Any, Any, Any]] = {}
+
+
+@dataclass(frozen=True)
+class _FallbackContext:
+    used: bool = False
+    reason: Optional[str] = None
+    warning: Optional[str] = None
+    model_id: Optional[str] = None
+    error: Optional[str] = None
 
 
 class SegmentationBackendError(RuntimeError):
@@ -82,10 +92,12 @@ def estimate_scene_masks(
             return _classic_scene_masks(
                 image,
                 requested_backend=backend,
-                used_fallback=True,
-                fallback_reason=reason,
-                fallback_warning="SegFormer segmentation looked implausible; using classic CV masks.",
-                model_id=model_id,
+                fallback=_FallbackContext(
+                    used=True,
+                    reason=reason,
+                    warning="SegFormer segmentation looked implausible; using classic CV masks.",
+                    model_id=model_id,
+                ),
             )
         return result
     except Exception as exc:
@@ -102,29 +114,27 @@ def estimate_scene_masks(
         return _classic_scene_masks(
             image,
             requested_backend=backend,
-            used_fallback=True,
-            fallback_reason="segformer_unavailable",
-            fallback_warning="SegFormer segmentation unavailable; using classic CV masks.",
-            model_id=model_id,
-            fallback_error=str(exc),
+            fallback=_FallbackContext(
+                used=True,
+                reason="segformer_unavailable",
+                warning="SegFormer segmentation unavailable; using classic CV masks.",
+                model_id=model_id,
+                error=str(exc),
+            ),
         )
 
 
 def _classic_scene_masks(
     image: np.ndarray,
     requested_backend: str,
-    used_fallback: bool = False,
-    fallback_reason: Optional[str] = None,
-    fallback_warning: Optional[str] = None,
-    model_id: Optional[str] = None,
-    fallback_error: Optional[str] = None,
+    fallback: _FallbackContext = _FallbackContext(),
 ) -> SceneMaskResult:
     sky = estimate_sky_mask(image)
     building_mask = None if sky.sky_mask is None else ~np.asarray(sky.sky_mask, dtype=bool)
     building_fraction = _mask_fraction(building_mask)
     warnings = list(sky.warnings)
-    if fallback_warning:
-        warnings.append(fallback_warning)
+    if fallback.warning:
+        warnings.append(fallback.warning)
     diagnostics: Dict[str, Any] = {
         "requested_backend": requested_backend,
         "backend": "classic",
@@ -132,19 +142,19 @@ def _classic_scene_masks(
         "sky_fraction": sky.sky_fraction,
         "building_fraction": building_fraction,
     }
-    if fallback_reason:
-        diagnostics["fallback_reason"] = fallback_reason
-    if fallback_error:
-        diagnostics["fallback_error"] = fallback_error
-    confidence = min(0.70, sky.confidence) if used_fallback else sky.confidence
+    if fallback.reason:
+        diagnostics["fallback_reason"] = fallback.reason
+    if fallback.error:
+        diagnostics["fallback_error"] = fallback.error
+    confidence = min(0.70, sky.confidence) if fallback.used else sky.confidence
     return SceneMaskResult(
         sky=sky,
         building_mask=building_mask,
         backend="classic",
-        model_id=model_id if used_fallback else None,
+        model_id=fallback.model_id if fallback.used else None,
         confidence=float(confidence),
-        used_fallback=used_fallback,
-        fallback_reason=fallback_reason,
+        used_fallback=fallback.used,
+        fallback_reason=fallback.reason,
         warnings=warnings,
         diagnostics=diagnostics,
     )

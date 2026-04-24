@@ -45,61 +45,81 @@ def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray]
         )
 
     variants = make_solver_image_variants(image_path, sky_mask)
+    try:
+        return _solve_local_variants(variants, config, index_path)
+    finally:
+        cleanup_solver_image_variants(variants)
+
+
+def _solve_local_variants(variants: list[Any], config: Any, index_path: Path) -> PlateSolveResult:
     timeout_seconds = int(getattr(config, "timeout_seconds", 600))
     deadline = time.monotonic() + timeout_seconds
     attempt_errors = []
     last_result: Optional[PlateSolveResult] = None
-    try:
-        for attempt_index, variant in enumerate(variants):
-            remaining_seconds = timeout_seconds if attempt_index == 0 else deadline - time.monotonic()
-            if remaining_seconds <= 0:
-                result = PlateSolveResult(
-                    success=False,
-                    failure_reason="local_solve_field_timeout",
-                    diagnostics={
-                        "backend": "solve-field",
-                        "index_dir": str(index_path),
-                        "timeout_seconds": timeout_seconds,
-                    },
-                )
-            else:
-                result = _solve_single_local_variant(
-                    variant.path,
-                    config,
-                    index_path,
-                    remaining_timeout_seconds=remaining_seconds,
-                    total_timeout_seconds=timeout_seconds,
-                )
-            last_result = result
-            result.diagnostics["attempt_label"] = variant.label
-            if result.success:
-                result.diagnostics["attempt_errors"] = attempt_errors
-                return result
-            attempt_errors.append(
-                {
-                    "attempt": variant.label,
-                    "reason": result.failure_reason or "unknown",
-                    "returncode": result.diagnostics.get("returncode"),
-                    "stdout_tail": result.diagnostics.get("stdout_tail"),
-                    "stderr_tail": result.diagnostics.get("stderr_tail"),
-                    "matched_index": result.diagnostics.get("matched_index"),
-                }
-            )
-        if len(variants) == 1 and last_result is not None:
-            return last_result
-        failure_reason = _collapsed_failure_reason(attempt_errors)
+
+    for attempt_index, variant in enumerate(variants):
+        remaining_seconds = _remaining_attempt_seconds(attempt_index, timeout_seconds, deadline)
+        result = _solve_local_variant_or_timeout(variant.path, config, index_path, remaining_seconds, timeout_seconds)
+        last_result = result
+        result.diagnostics["attempt_label"] = variant.label
+        if result.success:
+            result.diagnostics["attempt_errors"] = attempt_errors
+            return result
+        attempt_errors.append(_attempt_error(variant.label, result))
+
+    if len(variants) == 1 and last_result is not None:
+        return last_result
+    return PlateSolveResult(
+        success=False,
+        failure_reason=_collapsed_failure_reason(attempt_errors),
+        diagnostics={
+            "backend": "solve-field",
+            "index_dir": str(index_path),
+            "timeout_seconds": timeout_seconds,
+            "attempt_errors": attempt_errors,
+        },
+    )
+
+
+def _remaining_attempt_seconds(attempt_index: int, timeout_seconds: int, deadline: float) -> float:
+    return float(timeout_seconds) if attempt_index == 0 else deadline - time.monotonic()
+
+
+def _solve_local_variant_or_timeout(
+    image_path: str,
+    config: Any,
+    index_path: Path,
+    remaining_seconds: float,
+    timeout_seconds: int,
+) -> PlateSolveResult:
+    if remaining_seconds <= 0:
         return PlateSolveResult(
             success=False,
-            failure_reason=failure_reason,
+            failure_reason="local_solve_field_timeout",
             diagnostics={
                 "backend": "solve-field",
                 "index_dir": str(index_path),
                 "timeout_seconds": timeout_seconds,
-                "attempt_errors": attempt_errors,
             },
         )
-    finally:
-        cleanup_solver_image_variants(variants)
+    return _solve_single_local_variant(
+        image_path,
+        config,
+        index_path,
+        remaining_timeout_seconds=remaining_seconds,
+        total_timeout_seconds=timeout_seconds,
+    )
+
+
+def _attempt_error(label: str, result: PlateSolveResult) -> Dict[str, Any]:
+    return {
+        "attempt": label,
+        "reason": result.failure_reason or "unknown",
+        "returncode": result.diagnostics.get("returncode"),
+        "stdout_tail": result.diagnostics.get("stdout_tail"),
+        "stderr_tail": result.diagnostics.get("stderr_tail"),
+        "matched_index": result.diagnostics.get("matched_index"),
+    }
 
 
 def _solve_single_local_variant(

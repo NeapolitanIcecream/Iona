@@ -59,7 +59,7 @@ def test_temp_variant_file_is_removed_when_save_fails(tmp_path, monkeypatch) -> 
         def save(self, path) -> None:  # noqa: ARG002
             raise OSError("save failed")
 
-    monkeypatch.setattr(image_variants, "NamedTemporaryFile", lambda suffix, delete: FakeTempFile())
+    monkeypatch.setattr(image_variants, "NamedTemporaryFile", lambda **_kwargs: FakeTempFile())
     monkeypatch.setattr(image_variants.Image, "fromarray", lambda array: UnsavableImage())
 
     try:
