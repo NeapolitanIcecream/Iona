@@ -40,7 +40,7 @@ iona = "iona.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-iona = ["data/prototype_photos/manifest.json"]
+iona = ["data/prototype_photos/manifest.json", "data/prototype_photos/*.jpg"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

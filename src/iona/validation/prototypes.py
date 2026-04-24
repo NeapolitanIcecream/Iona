@@ -24,6 +24,10 @@ def default_manifest_path() -> Path:
     source_manifest = Path(__file__).resolve().parents[3] / "examples" / "prototype_photos" / "manifest.json"
     if source_manifest.is_file():
         return source_manifest
+    return packaged_manifest_path()
+
+
+def packaged_manifest_path() -> Path:
     return Path(__file__).resolve().parents[1] / "data" / "prototype_photos" / "manifest.json"
 
 

@@ -12,6 +12,7 @@ from iona.validation.prototypes import (
     default_manifest_path,
     haversine_distance_km,
     load_prototype_manifest,
+    packaged_manifest_path,
     render_validation_markdown,
     validate_prototype_manifest,
 )
@@ -65,6 +66,14 @@ def test_packaged_default_manifest_is_available() -> None:
 
     assert packaged_manifest.is_file()
     assert load_prototype_manifest(packaged_manifest)["photos"]
+
+
+def test_packaged_fallback_manifest_references_packaged_images() -> None:
+    packaged_manifest = packaged_manifest_path()
+    manifest = load_prototype_manifest(packaged_manifest)
+
+    for photo in manifest["photos"]:
+        assert (packaged_manifest.parent / photo["file"]).is_file()
 
 
 def test_validate_prototype_manifest_skips_when_local_solver_is_unavailable(tmp_path) -> None:
