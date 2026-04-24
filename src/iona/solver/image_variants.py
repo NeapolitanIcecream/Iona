@@ -22,15 +22,22 @@ def make_solver_image_variants(image_path: str, sky_mask: Optional[np.ndarray]) 
     variants = [SolverImageVariant("original", image_path, False)]
     if sky_mask is None:
         return variants
-    masked = _make_masked_variant(image_path, sky_mask)
-    enhanced = _make_star_enhanced_variant(image_path, sky_mask)
-    variants.extend(
-        [
-            SolverImageVariant("sky_masked", masked, True),
-            SolverImageVariant("star_enhanced", enhanced, True),
-        ]
-    )
+    _append_temp_variant(variants, "sky_masked", _make_masked_variant, image_path, sky_mask)
+    _append_temp_variant(variants, "star_enhanced", _make_star_enhanced_variant, image_path, sky_mask)
     return variants
+
+
+def _append_temp_variant(
+    variants: List[SolverImageVariant],
+    label: str,
+    maker,
+    image_path: str,
+    sky_mask: np.ndarray,
+) -> None:
+    try:
+        variants.append(SolverImageVariant(label, maker(image_path, sky_mask), True))
+    except Exception:
+        return
 
 
 def cleanup_solver_image_variants(variants: List[SolverImageVariant]) -> None:
@@ -47,19 +54,18 @@ def cleanup_solver_image_variants(variants: List[SolverImageVariant]) -> None:
 
 
 def _make_masked_variant(image_path: str, sky_mask: np.ndarray) -> str:
-    image = Image.open(image_path).convert("RGB")
+    with Image.open(image_path) as image:
+        image = image.convert("RGB")
     array = np.asarray(image).copy()
     mask = np.asarray(sky_mask, dtype=bool)
     if mask.shape == array.shape[:2]:
         array[~mask] = 0
-    tmp = NamedTemporaryFile(suffix=".png", delete=False)
-    tmp.close()
-    Image.fromarray(array).save(tmp.name)
-    return tmp.name
+    return _save_temp_image(Image.fromarray(array))
 
 
 def _make_star_enhanced_variant(image_path: str, sky_mask: np.ndarray) -> str:
-    image = Image.open(image_path).convert("L")
+    with Image.open(image_path) as image:
+        image = image.convert("L")
     gray = np.asarray(image).astype(float)
     mask = np.asarray(sky_mask, dtype=bool)
     if mask.shape == gray.shape and np.any(mask):
@@ -69,7 +75,17 @@ def _make_star_enhanced_variant(image_path: str, sky_mask: np.ndarray) -> str:
         enhanced[~mask] = 0
     else:
         enhanced = gray
+    return _save_temp_image(Image.fromarray(np.clip(enhanced, 0, 255).astype(np.uint8)))
+
+
+def _save_temp_image(image: Image.Image) -> str:
+    tmp_path = None
     tmp = NamedTemporaryFile(suffix=".png", delete=False)
+    tmp_path = tmp.name
     tmp.close()
-    Image.fromarray(np.clip(enhanced, 0, 255).astype(np.uint8)).save(tmp.name)
-    return tmp.name
+    try:
+        image.save(tmp_path)
+    except Exception:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
+    return tmp_path
