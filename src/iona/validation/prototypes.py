@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional
@@ -40,13 +42,14 @@ def haversine_distance_km(lat_a: float, lon_a: float, lat_b: float, lon_b: float
         math.sin(delta_phi / 2.0) ** 2
         + math.cos(phi_a) * math.cos(phi_b) * math.sin(delta_lambda / 2.0) ** 2
     )
+    value = max(0.0, min(1.0, value))
     return float(2.0 * radius_km * math.atan2(math.sqrt(value), math.sqrt(1.0 - value)))
 
 
 def solver_skip_reason(config: PipelineConfig) -> Optional[str]:
     solver = config.solver.solver
     if solver in LOCAL_SOLVERS:
-        if not config.solver.local_solve_field_path:
+        if not _is_executable(config.solver.local_solve_field_path):
             return "missing_local_solve_field_binary"
         index_dir = config.solver.local_index_dir
         if not index_dir or not Path(index_dir).expanduser().is_dir():
@@ -54,6 +57,15 @@ def solver_skip_reason(config: PipelineConfig) -> Optional[str]:
     if solver == "astrometry-net" and not config.solver.astrometry_api_key:
         return "missing_astrometry_net_api_key"
     return None
+
+
+def _is_executable(path_or_command: Optional[str]) -> bool:
+    if not path_or_command:
+        return False
+    if os.sep not in path_or_command:
+        return shutil.which(path_or_command) is not None
+    path = Path(path_or_command).expanduser()
+    return path.is_file() and os.access(path, os.X_OK)
 
 
 def validate_prototype_manifest(
@@ -182,28 +194,36 @@ def _skipped_photo(base: Mapping[str, Any], reason: str) -> Dict[str, Any]:
 
 def _expectation_for(photo: Mapping[str, Any]) -> Dict[str, str]:
     photo_id = str(photo["id"])
-    status = str(photo["status"])
     if photo_id == "headlands_telescope_milky_way":
-        if status == "skipped":
-            return {"status": "skipped", "reason": "benchmark_not_run"}
-        error = photo.get("estimated_error_km")
-        confidence = str(photo.get("confidence"))
-        if status == "success" and isinstance(error, (int, float)) and error < 200 and confidence in {"medium", "high"}:
-            return {"status": "passed", "reason": "headlands_success_under_200km"}
-        return {"status": "failed", "reason": "headlands_must_succeed_under_200km"}
-
+        return _headlands_expectation(photo)
     if photo_id == "astronomical_observatory_118127341":
-        error = photo.get("estimated_error_km")
-        if status == "success" and isinstance(error, (int, float)) and error > 500 and photo.get("confidence") == "high":
-            return {"status": "failed", "reason": "large_error_must_not_be_high_confidence"}
-        return {"status": "passed", "reason": "no_high_confidence_large_error"}
-
+        return _observatory_expectation(photo)
     if photo_id in {"gazing_milky_way_blanco_telescope", "kosovo_skywatcher_milky_way"}:
-        if status == "failed" and "solver_timeout" in photo.get("failure_reasons", []):
-            return {"status": "passed", "reason": "solver_timeout_recorded"}
-        return {"status": "passed", "reason": "no_expected_timeout_required"}
-
+        return _solver_failure_expectation(photo)
     return {"status": "unscored", "reason": "no_fixed_expectation"}
+
+
+def _headlands_expectation(photo: Mapping[str, Any]) -> Dict[str, str]:
+    if photo["status"] == "skipped":
+        return {"status": "skipped", "reason": "benchmark_not_run"}
+    error = photo.get("estimated_error_km")
+    confidence = str(photo.get("confidence"))
+    if photo["status"] == "success" and isinstance(error, (int, float)) and error < 200 and confidence in {"medium", "high"}:
+        return {"status": "passed", "reason": "headlands_success_under_200km"}
+    return {"status": "failed", "reason": "headlands_must_succeed_under_200km"}
+
+
+def _observatory_expectation(photo: Mapping[str, Any]) -> Dict[str, str]:
+    error = photo.get("estimated_error_km")
+    if photo["status"] == "success" and isinstance(error, (int, float)) and error > 500 and photo.get("confidence") == "high":
+        return {"status": "failed", "reason": "large_error_must_not_be_high_confidence"}
+    return {"status": "passed", "reason": "no_high_confidence_large_error"}
+
+
+def _solver_failure_expectation(photo: Mapping[str, Any]) -> Dict[str, str]:
+    if photo["status"] == "failed" and "solver_timeout" in photo.get("failure_reasons", []):
+        return {"status": "passed", "reason": "solver_timeout_recorded"}
+    return {"status": "passed", "reason": "no_expected_timeout_required"}
 
 
 def _summarize(photos: List[Mapping[str, Any]]) -> Dict[str, Any]:

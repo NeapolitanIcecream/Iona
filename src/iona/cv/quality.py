@@ -44,16 +44,38 @@ def confidence_gate_issues(quality: Mapping[str, Any]) -> List[Dict[str, str]]:
     """Return machine-readable confidence caps implied by stage diagnostics."""
 
     issues: List[Dict[str, str]] = []
-    if not _nested_bool(quality, "plate_solve", "success", default=False):
-        issues.append(_issue("plate_solve_failed", "failed", "Plate solving did not produce a usable WCS."))
+    for gate in (
+        _plate_solve_gate,
+        _sky_gate,
+        _vertical_geometry_gate,
+        _camera_gate,
+        _rotation_gate,
+        _zenith_gate,
+        _time_gate,
+    ):
+        issue = gate(quality)
+        if issue:
+            issues.append(issue)
+    return _dedupe_issues(issues)
 
+
+def _plate_solve_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:
+    if not _nested_bool(quality, "plate_solve", "success", default=False):
+        return _issue("plate_solve_failed", "failed", "Plate solving did not produce a usable WCS.")
+    return None
+
+
+def _sky_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:
     sky_confidence = _nested_float(quality, "sky_detection", "confidence", 0.0) or 0.0
     sky_fraction = _nested_float(quality, "sky_detection", "sky_fraction", 0.0) or 0.0
     if sky_confidence < 0.25 or sky_fraction < 0.08 or sky_fraction > 0.85:
-        issues.append(_issue("weak_sky_detection", "low", "Sky mask quality is too weak for high confidence."))
-    elif sky_confidence < 0.45:
-        issues.append(_issue("weak_sky_detection", "medium", "Sky mask quality limits confidence."))
+        return _issue("weak_sky_detection", "low", "Sky mask quality is too weak for high confidence.")
+    if sky_confidence < 0.45:
+        return _issue("weak_sky_detection", "medium", "Sky mask quality limits confidence.")
+    return None
 
+
+def _vertical_geometry_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:
     building_confidence = _nested_float(quality, "building_lines", "confidence", 0.0) or 0.0
     vertical_count = _nested_float(quality, "building_lines", "candidate_vertical_count", 0.0) or 0.0
     vp_inliers = _nested_float(quality, "vertical_vanishing_point", "inlier_lines", 0.0) or 0.0
@@ -66,56 +88,59 @@ def confidence_gate_issues(quality: Mapping[str, Any]) -> List[Dict[str, str]]:
         or vp_confidence < 0.75
         or vp_residual > 4.0
     ):
-        issues.append(
-            _issue(
-                "weak_vertical_geometry",
-                "medium",
-                "Vertical building geometry is too sparse or unstable for high confidence.",
-            )
+        return _issue(
+            "weak_vertical_geometry",
+            "medium",
+            "Vertical building geometry is too sparse or unstable for high confidence.",
         )
+    return None
 
+
+def _camera_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:
     camera_source = _nested_str(quality, "camera_model", "source")
     camera_confidence = _nested_float(quality, "camera_model", "confidence", 0.0) or 0.0
     if camera_source == "default" or camera_confidence < 0.5:
-        issues.append(
-            _issue(
-                "default_intrinsics_used",
-                "medium",
-                "Camera intrinsics came from a low-confidence default estimate.",
-            )
+        return _issue(
+            "default_intrinsics_used",
+            "medium",
+            "Camera intrinsics came from a low-confidence default estimate.",
         )
+    return None
 
+
+def _rotation_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:
     rotation_success = _nested_bool(quality, "rotation_fit", "success", default=False)
     rotation_residual = _nested_float(quality, "rotation_fit", "residual_deg", None)
     rotation_confidence = _nested_float(quality, "rotation_fit", "confidence", 0.0) or 0.0
     if not rotation_success:
-        issues.append(_issue("rotation_fit_failed", "failed", "Camera-to-celestial rotation failed."))
-    elif rotation_residual is not None and rotation_residual > 3.0:
-        issues.append(_issue("weak_rotation_fit", "low", "Camera-to-celestial rotation residual is high."))
-    elif rotation_confidence < 0.85 or (rotation_residual is not None and rotation_residual > 1.0):
-        issues.append(_issue("weak_rotation_fit", "medium", "Camera-to-celestial rotation limits confidence."))
+        return _issue("rotation_fit_failed", "failed", "Camera-to-celestial rotation failed.")
+    if rotation_residual is not None and rotation_residual > 3.0:
+        return _issue("weak_rotation_fit", "low", "Camera-to-celestial rotation residual is high.")
+    if rotation_confidence < 0.85 or (rotation_residual is not None and rotation_residual > 1.0):
+        return _issue("weak_rotation_fit", "medium", "Camera-to-celestial rotation limits confidence.")
+    return None
 
+
+def _zenith_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:
     zenith_success = _nested_bool(quality, "zenith", "success", default=False)
     zenith_confidence = _nested_float(quality, "zenith", "confidence", 0.0) or 0.0
     positive_fraction = _nested_float(quality, "zenith", "positive_altitude_fraction", None)
     if not zenith_success:
-        issues.append(_issue("zenith_estimation_failed", "failed", "Zenith estimation failed."))
-    elif positive_fraction is None or zenith_confidence < 0.6 or positive_fraction < 0.65:
-        issues.append(
-            _issue("weak_zenith_disambiguation", "low", "Zenith/nadir sign disambiguation is weak.")
-        )
-    elif zenith_confidence < 0.75 or positive_fraction < 0.75:
-        issues.append(
-            _issue("weak_zenith_disambiguation", "medium", "Zenith/nadir sign disambiguation limits confidence.")
-        )
+        return _issue("zenith_estimation_failed", "failed", "Zenith estimation failed.")
+    if positive_fraction is None or zenith_confidence < 0.6 or positive_fraction < 0.65:
+        return _issue("weak_zenith_disambiguation", "low", "Zenith/nadir sign disambiguation is weak.")
+    if zenith_confidence < 0.75 or positive_fraction < 0.75:
+        return _issue("weak_zenith_disambiguation", "medium", "Zenith/nadir sign disambiguation limits confidence.")
+    return None
 
+
+def _time_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:
     time_error = _nested_float(quality, "time", "estimated_time_error_seconds", 0.0) or 0.0
     if time_error >= 600:
-        issues.append(_issue("timestamp_uncertain", "low", "Timestamp uncertainty makes longitude unreliable."))
-    elif time_error >= 60:
-        issues.append(_issue("timestamp_uncertain", "medium", "Timestamp uncertainty limits longitude confidence."))
-
-    return _dedupe_issues(issues)
+        return _issue("timestamp_uncertain", "low", "Timestamp uncertainty makes longitude unreliable.")
+    if time_error >= 60:
+        return _issue("timestamp_uncertain", "medium", "Timestamp uncertainty limits longitude confidence.")
+    return None
 
 
 def _dedupe_issues(issues: List[Dict[str, str]]) -> List[Dict[str, str]]:

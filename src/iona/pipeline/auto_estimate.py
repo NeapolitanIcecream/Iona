@@ -137,6 +137,43 @@ def _quality_dict(**items: Any) -> Dict[str, Any]:
     return {key: value for key, value in items.items() if value is not None}
 
 
+def _quality_confidence_scores(quality: Dict[str, Any]) -> List[float]:
+    return [
+        _quality_score(quality, "sky_detection"),
+        _quality_score(quality, "star_detection"),
+        1.0 if quality.get("plate_solve", {}).get("success") else 0.0,
+        _quality_score(quality, "building_lines"),
+        _quality_score(quality, "vertical_vanishing_point"),
+        _quality_score(quality, "camera_model"),
+        _quality_score(quality, "rotation_fit"),
+        _quality_score(quality, "zenith"),
+    ]
+
+
+def _quality_score(quality: Dict[str, Any], section: str) -> float:
+    try:
+        return float(quality.get(section, {}).get("confidence", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _final_confidence(
+    scores: Sequence[float],
+    quality: Dict[str, Any],
+    hard_failed: bool,
+    warnings: List[str],
+) -> str:
+    base_confidence = aggregate_confidence(scores, hard_failed=hard_failed)
+    gate_issues = confidence_gate_issues(quality)
+    if gate_issues:
+        quality["confidence_gates"] = gate_issues
+    confidence = aggregate_confidence(scores, hard_failed=hard_failed, quality=quality)
+    if confidence != base_confidence:
+        warnings.append("confidence_downgraded: " + ", ".join(issue["code"] for issue in gate_issues))
+    warnings.extend(issue["message"] for issue in gate_issues)
+    return confidence
+
+
 def _record_line_detection(
     lines: Optional[BuildingLineDetectionResult],
     config: PipelineConfig,
@@ -343,24 +380,12 @@ def run_auto_pipeline(
         ),
     }
     hard_failed = location is None or bool(failure_reasons)
-    confidence_scores = [
-        sky.confidence,
-        stars.confidence if stars else 0.0,
-        1.0 if plate.success else 0.0,
-        lines.confidence if lines else 0.0,
-        vp.confidence if vp else 0.0,
-        intrinsics.confidence,
-        rotation.confidence,
-        zenith.confidence if zenith else 0.0,
-    ]
-    base_confidence = aggregate_confidence(confidence_scores, hard_failed=hard_failed)
-    gate_issues = confidence_gate_issues(quality)
-    if gate_issues:
-        quality["confidence_gates"] = gate_issues
-    confidence = aggregate_confidence(confidence_scores, hard_failed=hard_failed, quality=quality)
-    if confidence != base_confidence:
-        warnings.append("confidence_downgraded: " + ", ".join(issue["code"] for issue in gate_issues))
-    warnings.extend(issue["message"] for issue in gate_issues)
+    confidence = _final_confidence(
+        _quality_confidence_scores(quality),
+        quality,
+        hard_failed,
+        warnings,
+    )
     return IonaResult(
         success=location is not None and not failure_reasons,
         estimated_location=location,

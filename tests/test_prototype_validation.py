@@ -43,6 +43,12 @@ def test_haversine_distance_reports_degrees_at_equator() -> None:
     assert abs(distance - 111.195) < 0.01
 
 
+def test_haversine_distance_handles_antipodal_rounding() -> None:
+    distance = haversine_distance_km(0.0, 0.0, 0.0, 180.0)
+
+    assert abs(distance - 20015.114) < 0.01
+
+
 def test_load_prototype_manifest_returns_photo_entries(tmp_path) -> None:
     manifest_path = _write_manifest(tmp_path, "sample.jpg")
 
@@ -71,10 +77,13 @@ def test_validate_prototype_manifest_skips_when_local_index_dir_is_missing(tmp_p
     image_path = tmp_path / "sample.jpg"
     Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
     manifest_path = _write_manifest(tmp_path, image_path.name)
+    solver_path = tmp_path / "solve-field"
+    solver_path.write_text("#!/bin/sh\n", encoding="utf-8")
+    solver_path.chmod(0o755)
     config = PipelineConfig(
         solver=SolverConfig(
             solver="local",
-            local_solve_field_path="/opt/homebrew/bin/solve-field",
+            local_solve_field_path=str(solver_path),
             local_index_dir=str(tmp_path / "missing-indexes"),
         )
     )
@@ -83,6 +92,24 @@ def test_validate_prototype_manifest_skips_when_local_index_dir_is_missing(tmp_p
 
     assert validation["summary"]["skipped"] == 1
     assert validation["photos"][0]["skip_reason"] == "missing_local_astrometry_index_dir"
+
+
+def test_validate_prototype_manifest_skips_when_solver_path_is_stale(tmp_path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
+    manifest_path = _write_manifest(tmp_path, image_path.name)
+    config = PipelineConfig(
+        solver=SolverConfig(
+            solver="local",
+            local_solve_field_path=str(tmp_path / "missing-solve-field"),
+            local_index_dir=str(tmp_path),
+        )
+    )
+
+    validation = validate_prototype_manifest(manifest_path, config=config)
+
+    assert validation["summary"]["skipped"] == 1
+    assert validation["photos"][0]["skip_reason"] == "missing_local_solve_field_binary"
 
 
 def test_validate_prototype_manifest_computes_benchmark_error_with_fake_runner(tmp_path) -> None:
