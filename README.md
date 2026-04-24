@@ -96,6 +96,20 @@ uv run iona auto \
   --output /tmp/iona-local-headlands.json
 ```
 
+Prototype validation benchmark:
+
+```bash
+ASTROMETRY_INDEX_DIR=~/.cache/iona/astrometry-indexes/4100 \
+ASTROMETRY_SCALE_LOW=40 \
+ASTROMETRY_SCALE_HIGH=90 \
+ASTROMETRY_SCALE_UNITS=degwidth \
+uv run iona validate-prototypes \
+  --solver local \
+  --timeout-seconds 120 \
+  --output /tmp/iona-prototype-validation.json \
+  --report /tmp/iona-prototype-validation.md
+```
+
 The JSON output includes:
 
 - `estimated_location` when the full chain succeeds.
@@ -105,6 +119,8 @@ The JSON output includes:
 - `warnings` for risks such as distortion, weak timestamps, or few stars.
 - `failure_reasons` when the system should not trust the result.
 - `diagnostics`, a machine-readable stage-by-stage trace.
+- `confidence_gates` when high confidence is capped by weak geometry,
+  default intrinsics, weak timestamps, or failed downstream stages.
 
 ## Project Structure
 
@@ -142,10 +158,12 @@ Verified locally:
 - `uv run pytest`
 - `uv run iona --help`
 - `uv run iona auto --help`
+- `uv run iona validate-prototypes --help`
 - Cremona refactor audit against `quality/refactor-baseline.json`
 - Dry-run failure output with `--solver none`
 - Live Astrometry.net solves on prototype photos.
 - Local `solve-field` solves on prototype photos using 4100-series index files.
+- Reproducible prototype validation with `iona validate-prototypes`.
 - Prototype accuracy results in [docs/prototype-results.md](docs/prototype-results.md).
 
 ## Deferred Features

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "purpose": "Packaged fallback manifest for Iona prototype validation. Source checkouts prefer examples/prototype_photos/manifest.json, which also contains the image files.",
+  "timestamp_policy": "Source timestamps are treated as local camera times with the listed timezone_hint. Confirm original timezone metadata before using location errors as accuracy claims.",
+  "photos": [
+    {
+      "id": "astronomical_observatory_118127341",
+      "file": "astronomical_observatory_118127341.jpg",
+      "source_time": "2015-08-12T22:31:51",
+      "timezone_hint": "Europe/Rome",
+      "camera_location": {
+        "lat": 42.44632474,
+        "lon": 13.56039047
+      }
+    },
+    {
+      "id": "headlands_telescope_milky_way",
+      "file": "headlands_telescope_milky_way.jpg",
+      "source_time": "2025-07-20T23:31:00",
+      "timezone_hint": "America/Detroit",
+      "camera_location": {
+        "lat": 45.778202,
+        "lon": -84.790762
+      }
+    },
+    {
+      "id": "gazing_milky_way_blanco_telescope",
+      "file": "gazing_milky_way_blanco_telescope.jpg",
+      "source_time": "2015-07-18T09:33:00",
+      "timezone_hint": "UTC",
+      "camera_location": {
+        "lat": -30.169661,
+        "lon": -70.806525
+      }
+    },
+    {
+      "id": "kosovo_skywatcher_milky_way",
+      "file": "kosovo_skywatcher_milky_way.jpg",
+      "source_time": "2025-06-22T00:07:27",
+      "timezone_hint": "Europe/Belgrade",
+      "camera_location": {
+        "lat": 41.950928,
+        "lon": 20.708039
+      }
+    }
+  ]
+}

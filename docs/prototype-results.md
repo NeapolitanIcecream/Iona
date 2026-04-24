@@ -39,6 +39,25 @@ uv run iona auto \
   --output /tmp/iona-local-headlands.json
 ```
 
+## Reproducible Validation
+
+Run the tracked prototype benchmark with:
+
+```bash
+ASTROMETRY_INDEX_DIR=~/.cache/iona/astrometry-indexes/4100 \
+ASTROMETRY_SCALE_LOW=40 \
+ASTROMETRY_SCALE_HIGH=90 \
+ASTROMETRY_SCALE_UNITS=degwidth \
+uv run iona validate-prototypes \
+  --solver local \
+  --timeout-seconds 120 \
+  --output /tmp/iona-prototype-validation.json \
+  --report /tmp/iona-prototype-validation.md
+```
+
+If `solve-field` or the index directory is unavailable, the validation output
+marks the photos as `skipped` instead of failing the run.
+
 ## Dry CV Smoke
 
 All four prototype images pass the dry CV smoke check with `--solver none`.
@@ -52,19 +71,25 @@ All four prototype images pass the dry CV smoke check with `--solver none`.
 
 ## Location Accuracy
 
-These results use local `solve-field` with the indexes above.
+These results use local `solve-field` with the indexes above and the
+`validate-prototypes` command.
 
-| Image | Ground Truth | Iona Estimate | Status | Error |
-| --- | --- | --- | --- | ---: |
-| `astronomical_observatory_118127341` | `42.4463, 13.5604` | `35.1208, 5.5419` | Success | about 1070 km |
-| `headlands_telescope_milky_way` | `45.7782, -84.7908` | `46.0958, -86.4487` | Success | about 133 km |
-| `gazing_milky_way_blanco_telescope` | `-30.1697, -70.8065` | none | Local plate solve timed out at 120s | n/a |
-| `kosovo_skywatcher_milky_way` | `41.9509, 20.7080` | none | Local plate solve timed out at 120s | n/a |
+| Image | Ground Truth | Iona Estimate | Status | Confidence | Error | Main reason |
+| --- | --- | --- | --- | --- | ---: | --- |
+| `astronomical_observatory_118127341` | `42.4463, 13.5604` | `35.1208, 5.5419` | Success | Medium | about 1070 km | `weak_vertical_geometry` |
+| `headlands_telescope_milky_way` | `45.7782, -84.7908` | `46.0958, -86.4487` | Success | High | about 133 km | n/a |
+| `gazing_milky_way_blanco_telescope` | `-30.1697, -70.8065` | none | Failed | Failed | n/a | `local_solve_field_no_solution` |
+| `kosovo_skywatcher_milky_way` | `41.9509, 20.7080` | none | Failed | Failed | n/a | `local_solve_field_no_solution` |
 
 `headlands_telescope_milky_way` is the best current end-to-end sample. The
 observatory and Blanco images have timestamp caveats in `manifest.json`, so do
 not use them for final accuracy claims without confirming original capture
 times.
+
+The observatory sample intentionally no longer reports `high` confidence. Its
+large error is now capped to `medium` by the confidence gate because only six
+candidate vertical lines and five vanishing-point inliers support the foreground
+geometry.
 
 ## Known Interpretation Limits
 
