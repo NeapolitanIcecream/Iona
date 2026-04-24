@@ -8,8 +8,11 @@ or coverage than it has.
 
 - Live Astrometry.net and local `solve-field` runs have been verified on sample
   photos. See `docs/prototype-results.md`.
+- `iona validate-prototypes` now reproduces the tracked local benchmark and
+  writes JSON plus an optional Markdown report.
 - Accuracy is still prototype-level. The best current sample is about 133 km
-  from ground truth, while another successful sample is about 1070 km off.
+  from ground truth, while another successful sample is about 1070 km off and
+  is capped to medium confidence by weak vertical-geometry diagnostics.
 - The current tests validate the math chain and failure diagnostics, but not
   external solver behavior or real night-scene CV quality.
 
@@ -42,10 +45,8 @@ or coverage than it has.
 
 ## Next Validation Tasks
 
-- Run `iona auto` on one real sample photo with an Astrometry.net API key.
-- Compare the estimated location with the known true location, without using
-  EXIF GPS.
-- Save the input characteristics, output JSON, debug overlay, and failure mode
-  if the run fails.
-- Add a regression test or fixture for any real failure mode that can be reduced
-  to synthetic data.
+- Add more confirmed-capture-time real photos to the validation manifest.
+- Add a reduced synthetic regression for each real failure mode that can be
+  isolated without external solver dependencies.
+- Confirm Astrometry.net behavior manually with an API key when network-backed
+  solver coverage matters.

@@ -15,6 +15,11 @@ from iona.cv.star_detection import detect_star_candidates
 from iona.cv.vanishing_point import estimate_vertical_vanishing_point
 from iona.pipeline.auto_estimate import run_auto_pipeline
 from iona.time_utils import parse_utc_datetime
+from iona.validation.prototypes import (
+    default_manifest_path,
+    render_validation_markdown,
+    validate_prototype_manifest,
+)
 from iona.visualization.overlays import save_debug_overlay
 
 try:
@@ -57,6 +62,30 @@ def _run_auto(
     print(result.to_json())
 
 
+def _run_validate_prototypes(
+    manifest: str,
+    solver: str,
+    output: str,
+    report: Optional[str],
+    astrometry_api_key: Optional[str],
+    timeout_seconds: int,
+) -> None:
+    config = PipelineConfig.default(
+        solver=solver,
+        astrometry_api_key=astrometry_api_key,
+        timeout_seconds=timeout_seconds,
+    )
+    validation = validate_prototype_manifest(manifest, config=config)
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(validation, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if report:
+        report_path = Path(report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(render_validation_markdown(validation), encoding="utf-8")
+    print(json.dumps(validation, indent=2, sort_keys=True))
+
+
 if typer is not None:
     app = typer.Typer(help="Iona CLI.")
 
@@ -77,6 +106,17 @@ if typer is not None:
     ) -> None:
         _run_auto(image, utc, solver, output, viz, astrometry_api_key, timeout_seconds, timezone_hint)
 
+    @app.command("validate-prototypes")
+    def validate_prototypes(
+        manifest: str = typer.Option(str(default_manifest_path()), "--manifest", help="Prototype manifest path."),
+        solver: str = typer.Option("local", "--solver", help="Plate solver backend for validation."),
+        output: str = typer.Option("prototype-validation.json", "--output", help="Output validation JSON path."),
+        report: Optional[str] = typer.Option(None, "--report", help="Optional Markdown report path."),
+        astrometry_api_key: Optional[str] = typer.Option(None, "--astrometry-api-key", help="Astrometry.net API key."),
+        timeout_seconds: int = typer.Option(120, "--timeout-seconds", help="Per-image plate solver timeout."),
+    ) -> None:
+        _run_validate_prototypes(manifest, solver, output, report, astrometry_api_key, timeout_seconds)
+
     def main() -> None:
         app()
 
@@ -94,6 +134,13 @@ else:
         auto_parser.add_argument("--astrometry-api-key")
         auto_parser.add_argument("--timeout-seconds", type=int, default=600)
         auto_parser.add_argument("--timezone")
+        validate_parser = sub.add_parser("validate-prototypes")
+        validate_parser.add_argument("--manifest", default=str(default_manifest_path()))
+        validate_parser.add_argument("--solver", default="local")
+        validate_parser.add_argument("--output", default="prototype-validation.json")
+        validate_parser.add_argument("--report")
+        validate_parser.add_argument("--astrometry-api-key")
+        validate_parser.add_argument("--timeout-seconds", type=int, default=120)
         args = parser.parse_args()
         if args.command == "auto":
             _run_auto(
@@ -105,6 +152,15 @@ else:
                 args.astrometry_api_key,
                 args.timeout_seconds,
                 args.timezone,
+            )
+        if args.command == "validate-prototypes":
+            _run_validate_prototypes(
+                args.manifest,
+                args.solver,
+                args.output,
+                args.report,
+                args.astrometry_api_key,
+                args.timeout_seconds,
             )
 
 

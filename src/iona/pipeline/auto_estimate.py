@@ -16,7 +16,7 @@ from iona.camera.rotation_fit import fit_camera_to_celestial_rotation
 from iona.config import PipelineConfig
 from iona.cv.line_detection import detect_building_lines
 from iona.cv.preprocess import load_rgb_image, save_rgb_image_temp
-from iona.cv.quality import aggregate_confidence
+from iona.cv.quality import aggregate_confidence, confidence_gate_issues
 from iona.cv.sky_mask import estimate_sky_mask
 from iona.cv.star_detection import detect_star_candidates
 from iona.cv.vanishing_point import estimate_vertical_vanishing_point
@@ -221,6 +221,8 @@ def run_auto_pipeline(
         failure_reasons.append("plate_solve_failed")
         if plate.failure_reason:
             failure_reasons.append(plate.failure_reason)
+            if "timeout" in plate.failure_reason:
+                failure_reasons.append("solver_timeout")
         diagnostics.append(
             _event(
                 "plate_solve",
@@ -341,19 +343,24 @@ def run_auto_pipeline(
         ),
     }
     hard_failed = location is None or bool(failure_reasons)
-    confidence = aggregate_confidence(
-        [
-            sky.confidence,
-            stars.confidence if stars else 0.0,
-            1.0 if plate.success else 0.0,
-            lines.confidence if lines else 0.0,
-            vp.confidence if vp else 0.0,
-            intrinsics.confidence,
-            rotation.confidence,
-            zenith.confidence if zenith else 0.0,
-        ],
-        hard_failed=hard_failed,
-    )
+    confidence_scores = [
+        sky.confidence,
+        stars.confidence if stars else 0.0,
+        1.0 if plate.success else 0.0,
+        lines.confidence if lines else 0.0,
+        vp.confidence if vp else 0.0,
+        intrinsics.confidence,
+        rotation.confidence,
+        zenith.confidence if zenith else 0.0,
+    ]
+    base_confidence = aggregate_confidence(confidence_scores, hard_failed=hard_failed)
+    gate_issues = confidence_gate_issues(quality)
+    if gate_issues:
+        quality["confidence_gates"] = gate_issues
+    confidence = aggregate_confidence(confidence_scores, hard_failed=hard_failed, quality=quality)
+    if confidence != base_confidence:
+        warnings.append("confidence_downgraded: " + ", ".join(issue["code"] for issue in gate_issues))
+    warnings.extend(issue["message"] for issue in gate_issues)
     return IonaResult(
         success=location is not None and not failure_reasons,
         estimated_location=location,

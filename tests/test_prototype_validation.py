@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+
+from PIL import Image
+
+from iona.config import PipelineConfig, SolverConfig
+from iona.pipeline.result_schema import IonaResult, LocationEstimate
+from iona.validation.prototypes import (
+    haversine_distance_km,
+    load_prototype_manifest,
+    render_validation_markdown,
+    validate_prototype_manifest,
+)
+
+
+def _write_manifest(tmp_path, photo_file: str) -> str:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "photos": [
+                    {
+                        "id": "sample_photo",
+                        "file": photo_file,
+                        "source_time": "2026-01-01T12:00:00",
+                        "timezone_hint": "UTC",
+                        "camera_location": {"lat": 35.0, "lon": 139.0},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(manifest_path)
+
+
+def test_haversine_distance_reports_degrees_at_equator() -> None:
+    distance = haversine_distance_km(0.0, 0.0, 0.0, 1.0)
+
+    assert abs(distance - 111.195) < 0.01
+
+
+def test_load_prototype_manifest_returns_photo_entries(tmp_path) -> None:
+    manifest_path = _write_manifest(tmp_path, "sample.jpg")
+
+    manifest = load_prototype_manifest(manifest_path)
+
+    assert manifest["version"] == 1
+    assert manifest["photos"][0]["id"] == "sample_photo"
+
+
+def test_validate_prototype_manifest_skips_when_local_solver_is_unavailable(tmp_path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
+    manifest_path = _write_manifest(tmp_path, image_path.name)
+    config = PipelineConfig(
+        solver=SolverConfig(solver="local", local_solve_field_path=None, local_index_dir=None)
+    )
+
+    validation = validate_prototype_manifest(manifest_path, config=config)
+
+    assert validation["summary"]["skipped"] == 1
+    assert validation["photos"][0]["status"] == "skipped"
+    assert validation["photos"][0]["skip_reason"] == "missing_local_solve_field_binary"
+
+
+def test_validate_prototype_manifest_skips_when_local_index_dir_is_missing(tmp_path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
+    manifest_path = _write_manifest(tmp_path, image_path.name)
+    config = PipelineConfig(
+        solver=SolverConfig(
+            solver="local",
+            local_solve_field_path="/opt/homebrew/bin/solve-field",
+            local_index_dir=str(tmp_path / "missing-indexes"),
+        )
+    )
+
+    validation = validate_prototype_manifest(manifest_path, config=config)
+
+    assert validation["summary"]["skipped"] == 1
+    assert validation["photos"][0]["skip_reason"] == "missing_local_astrometry_index_dir"
+
+
+def test_validate_prototype_manifest_computes_benchmark_error_with_fake_runner(tmp_path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
+    manifest_path = _write_manifest(tmp_path, image_path.name)
+
+    def fake_runner(image_path: str, utc_time: datetime, config: PipelineConfig) -> IonaResult:
+        assert image_path.endswith("sample.jpg")
+        assert utc_time == datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        return IonaResult(
+            success=True,
+            estimated_location=LocationEstimate(latitude_deg=35.0, longitude_deg=139.0, gmst_deg=0.0),
+            confidence="medium",
+            quality={"plate_solve": {"success": True}},
+            warnings=[],
+            failure_reasons=[],
+            diagnostics=[],
+        )
+
+    validation = validate_prototype_manifest(
+        manifest_path,
+        config=PipelineConfig(solver=SolverConfig(solver="none")),
+        run_pipeline=fake_runner,
+    )
+
+    assert validation["summary"]["success"] == 1
+    assert validation["photos"][0]["estimated_error_km"] == 0.0
+
+
+def test_render_validation_markdown_includes_skipped_diagnostics(tmp_path) -> None:
+    image_path = tmp_path / "sample.jpg"
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(image_path)
+    validation = validate_prototype_manifest(
+        _write_manifest(tmp_path, image_path.name),
+        config=PipelineConfig(
+            solver=SolverConfig(solver="local", local_solve_field_path=None, local_index_dir=None)
+        ),
+    )
+
+    markdown = render_validation_markdown(validation)
+
+    assert "| sample_photo | skipped |" in markdown
+    assert "missing_local_solve_field_binary" in markdown
