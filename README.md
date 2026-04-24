@@ -12,7 +12,7 @@ UTC timestamp. It does not try to handle every night scene.
 The automatic pipeline:
 
 1. Loads a photo and ignores any EXIF GPS tags.
-2. Estimates a sky mask and detects star candidates.
+2. Estimates scene masks for sky/building regions and detects star candidates.
 3. Calls Astrometry.net or a local `solve-field` install for plate solving.
 4. Detects building line segments with OpenCV.
 5. Estimates a vertical vanishing point with RANSAC.
@@ -51,6 +51,15 @@ Run tests:
 uv run pytest
 ```
 
+Optional SegFormer segmentation support:
+
+```bash
+uv sync --extra ml --group dev
+```
+
+Without the `ml` extra, `--segmentation-backend auto` falls back to the classic
+OpenCV/statistical masks and records that fallback in JSON diagnostics.
+
 ## Astrometry.net API Key
 
 Copy `.env.example` to `.env` or pass the key on the CLI:
@@ -76,6 +85,7 @@ uv run iona auto \
   --image ./sample.jpg \
   --utc "2026-01-01T12:34:56Z" \
   --solver astrometry-net \
+  --segmentation-backend auto \
   --output ./result.json \
   --viz ./result.jpg
 ```
@@ -115,7 +125,8 @@ The JSON output includes:
 - `estimated_location` when the full chain succeeds.
 - `confidence` as `high`, `medium`, `low`, or `failed`.
 - `quality` metrics for sky detection, star detection, plate solving, line
-  detection, vanishing point, camera model, rotation fit, zenith, and time.
+  detection, vanishing point, camera model, rotation fit, zenith, segmentation,
+  and time.
 - `warnings` for risks such as distortion, weak timestamps, or few stars.
 - `failure_reasons` when the system should not trust the result.
 - `diagnostics`, a machine-readable stage-by-stage trace.
@@ -128,7 +139,7 @@ The JSON output includes:
 src/iona/
   astronomy/       Sidereal time, RA/Dec vectors, geolocation formulas
   camera/          Pinhole intrinsics, image rays, rotation fitting
-  cv/              Sky mask, star candidates, line detection, vanishing point
+  cv/              Scene masks, star candidates, line detection, vanishing point
   solver/          Astrometry.net wrapper and local solve-field backend
   pipeline/        End-to-end orchestration and result schema
   visualization/   Debug overlay rendering
@@ -143,7 +154,8 @@ tests/             Unit and synthetic behavior specs
   available.
 - Plate solving depends on Astrometry.net or a local astrometry.net
   `solve-field` install with suitable index files.
-- The sky/building segmentation is traditional CV, not a trained segmenter.
+- The default segmentation path can use a SegFormer ADE20K model when the
+  optional `ml` extra is installed; otherwise it falls back to traditional CV.
 - A failed or unstable vanishing point returns a failure instead of asking for
   manual annotation.
 - Longitude confidence depends strongly on timestamp quality: one minute of
@@ -161,6 +173,8 @@ Verified locally:
 - `uv run iona validate-prototypes --help`
 - Cremona refactor audit against `quality/refactor-baseline.json`
 - Dry-run failure output with `--solver none`
+- Dry-run segmentation output with `--segmentation-backend classic`
+- Dry-run segmentation fallback diagnostics with `--segmentation-backend auto`
 - Live Astrometry.net solves on prototype photos.
 - Local `solve-field` solves on prototype photos using 4100-series index files.
 - Reproducible prototype validation with `iona validate-prototypes`.
@@ -171,6 +185,9 @@ Verified locally:
 - `--solver none` is only for dry-run failure-path checks.
 - Local `solve-field` requires the external astrometry.net binaries and index
   files; they are not vendored in this repository.
+- SegFormer weights are not vendored in this repository; they are loaded through
+  the normal Hugging Face cache when `--segmentation-backend auto` or
+  `segformer` is used with the `ml` extra installed.
 - `src/iona/ui/streamlit_app.py` is a placeholder for a later UI phase.
 - `src/iona/visualization/report.py` only contains a minimal text summary.
 

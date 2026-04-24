@@ -17,7 +17,7 @@ from iona.config import PipelineConfig
 from iona.cv.line_detection import detect_building_lines
 from iona.cv.preprocess import load_rgb_image, save_rgb_image_temp
 from iona.cv.quality import aggregate_confidence, confidence_gate_issues
-from iona.cv.sky_mask import estimate_sky_mask
+from iona.cv.segmentation import estimate_scene_masks
 from iona.cv.star_detection import detect_star_candidates
 from iona.cv.vanishing_point import estimate_vertical_vanishing_point
 from iona.exif import read_exif
@@ -139,6 +139,7 @@ def _quality_dict(**items: Any) -> Dict[str, Any]:
 
 def _quality_confidence_scores(quality: Dict[str, Any]) -> List[float]:
     return [
+        _quality_score(quality, "segmentation"),
         _quality_score(quality, "sky_detection"),
         _quality_score(quality, "star_detection"),
         1.0 if quality.get("plate_solve", {}).get("success") else 0.0,
@@ -155,6 +156,20 @@ def _quality_score(quality: Dict[str, Any], section: str) -> float:
         return float(quality.get(section, {}).get("confidence", 0.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _plate_attempt_failure_reasons(plate: PlateSolveResult) -> List[str]:
+    attempt_errors = plate.diagnostics.get("attempt_errors", [])
+    if not isinstance(attempt_errors, list):
+        return []
+    reasons = []
+    for error in attempt_errors:
+        if not isinstance(error, dict):
+            continue
+        reason = error.get("reason")
+        if isinstance(reason, str) and reason:
+            reasons.append(reason)
+    return reasons
 
 
 def _final_confidence(
@@ -222,7 +237,14 @@ def run_auto_pipeline(
     height, width = image.shape[:2]
     diagnostics.append(_event("image", "ok", "Image loaded", width=width, height=height))
 
-    sky = estimate_sky_mask(image)
+    scene = estimate_scene_masks(
+        image,
+        backend=config.segmentation_backend,
+        model_id=config.segmentation_model,
+    )
+    warnings.extend(scene.warnings)
+    diagnostics.append(_event("segmentation", "ok", "Scene masks estimated", **scene.diagnostics))
+    sky = scene.sky
     warnings.extend(sky.warnings)
     diagnostics.append(_event("sky_detection", "ok", "Sky mask estimated", **sky.diagnostics))
 
@@ -242,7 +264,11 @@ def run_auto_pipeline(
         else:
             diagnostics.append(_event("star_detection", "ok", "Star candidates detected", **star_details))
 
-    lines = detect_building_lines(image, sky.sky_mask) if sky.sky_mask is not None else None
+    lines = (
+        detect_building_lines(image, sky.sky_mask, building_mask=scene.building_mask)
+        if sky.sky_mask is not None
+        else None
+    )
     enough_vertical_lines = _record_line_detection(lines, config, diagnostics, warnings, failure_reasons)
 
     solver_image_path = save_rgb_image_temp(image)
@@ -259,6 +285,10 @@ def run_auto_pipeline(
         if plate.failure_reason:
             failure_reasons.append(plate.failure_reason)
             if "timeout" in plate.failure_reason:
+                failure_reasons.append("solver_timeout")
+        for attempt_reason in _plate_attempt_failure_reasons(plate):
+            if "timeout" in attempt_reason:
+                failure_reasons.append(attempt_reason)
                 failure_reasons.append("solver_timeout")
         diagnostics.append(
             _event(
@@ -334,6 +364,15 @@ def run_auto_pipeline(
 
     quality = {
         "sky_detection": _quality_dict(confidence=sky.confidence, sky_fraction=sky.sky_fraction),
+        "segmentation": _quality_dict(
+            backend=scene.backend,
+            model_id=scene.model_id,
+            confidence=scene.confidence,
+            used_fallback=scene.used_fallback,
+            fallback_reason=scene.fallback_reason,
+            sky_fraction=sky.sky_fraction,
+            building_fraction=scene.diagnostics.get("building_fraction"),
+        ),
         "star_detection": _quality_dict(
             confidence=stars.confidence if stars else 0.0,
             star_count=stars.star_count if stars else 0,

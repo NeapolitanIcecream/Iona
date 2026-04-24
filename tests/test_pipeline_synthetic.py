@@ -67,6 +67,8 @@ def test_pipeline_failure_result_contains_machine_readable_diagnostics(tmp_path)
     assert any(event.stage == "star_detection" and event.status == "failed" for event in result.diagnostics)
     assert any(event.stage == "line_detection" and event.status == "failed" for event in result.diagnostics)
     assert result.quality["plate_solve"]["failure_reason"] == "plate_solver_disabled"
+    assert result.quality["segmentation"]["used_fallback"] is True
+    assert any(event.stage == "segmentation" and event.status == "ok" for event in result.diagnostics)
 
 
 def test_pipeline_uses_exif_transposed_pixels_for_plate_solving(tmp_path, monkeypatch) -> None:
@@ -91,3 +93,31 @@ def test_pipeline_uses_exif_transposed_pixels_for_plate_solving(tmp_path, monkey
     )
 
     assert observed_sizes == [(20, 40)]
+
+
+def test_pipeline_promotes_solver_timeout_from_attempt_diagnostics(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / "blank.jpg"
+    Image.new("RGB", (80, 60), color=(5, 5, 8)).save(image_path)
+
+    def fake_solve_plate(path, sky_mask, config):  # noqa: ARG001
+        return PlateSolveResult(
+            success=False,
+            failure_reason="local_solve_field_all_attempts_failed",
+            diagnostics={
+                "attempt_errors": [
+                    {"attempt": "original", "reason": "local_solve_field_no_solution"},
+                    {"attempt": "star_enhanced", "reason": "local_solve_field_timeout"},
+                ]
+            },
+        )
+
+    monkeypatch.setattr(auto_estimate, "solve_plate", fake_solve_plate)
+
+    result = run_auto_pipeline(
+        str(image_path),
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        PipelineConfig(solver=SolverConfig(solver="local")),
+    )
+
+    assert "local_solve_field_timeout" in result.failure_reasons
+    assert "solver_timeout" in result.failure_reasons

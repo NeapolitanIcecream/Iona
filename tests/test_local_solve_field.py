@@ -3,8 +3,11 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
+
 from iona.config import SolverConfig
 from iona.solver import local_solve_field
+from iona.solver.image_variants import SolverImageVariant
 
 
 def _fits_header_bytes() -> bytes:
@@ -158,3 +161,59 @@ def test_local_solve_field_parses_index_filename_from_stdout() -> None:
     stdout = "Field 1: solved with index index-4119.fits.\n"
 
     assert local_solve_field._parse_matched_index(stdout) == "index-4119.fits"
+
+
+def test_local_solve_field_tries_masked_variants_until_one_solves(tmp_path, monkeypatch) -> None:
+    """Local solve should try original, sky-masked, then star-enhanced variants."""
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(b"fake-image")
+    index_dir = tmp_path / "indexes"
+    index_dir.mkdir()
+    sky_mask = np.ones((8, 10), dtype=bool)
+    calls = []
+
+    def fake_variants(path, mask):  # noqa: ARG001
+        return [
+            SolverImageVariant("original", path, False),
+            SolverImageVariant("sky_masked", str(tmp_path / "masked.png"), True),
+            SolverImageVariant("star_enhanced", str(tmp_path / "enhanced.png"), True),
+        ]
+
+    def fake_cleanup(variants):  # noqa: ARG001
+        return None
+
+    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+        calls.append(Path(cmd[1]).name)
+        out_dir = Path(cmd[cmd.index("--dir") + 1])
+        wcs_path = Path(cmd[cmd.index("--wcs") + 1])
+        solved_path = Path(cmd[cmd.index("--solved") + 1])
+        if len(calls) == 3:
+            wcs_path.write_bytes(_fits_header_bytes())
+            solved_path.write_text("1\n")
+
+        class Result:
+            returncode = 0
+            stdout = "Field 1: solved with index index-4119.fits.\n" if len(calls) == 3 else "Did not solve.\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(local_solve_field, "make_solver_image_variants", fake_variants)
+    monkeypatch.setattr(local_solve_field, "cleanup_solver_image_variants", fake_cleanup)
+    monkeypatch.setattr(local_solve_field.subprocess, "run", fake_run)
+
+    result = local_solve_field.solve_with_local_solve_field(
+        image_path=str(image_path),
+        sky_mask=sky_mask,
+        config=SolverConfig(
+            solver="local",
+            timeout_seconds=30,
+            local_index_dir=str(index_dir),
+            local_solve_field_path="/opt/homebrew/bin/solve-field",
+        ),
+    )
+
+    assert result.success
+    assert result.diagnostics["attempt_label"] == "star_enhanced"
+    assert [error["attempt"] for error in result.diagnostics["attempt_errors"]] == ["original", "sky_masked"]
+    assert calls == ["image.png", "masked.png", "enhanced.png"]

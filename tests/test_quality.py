@@ -15,6 +15,13 @@ def _quality(**overrides):
         "camera_model": {"confidence": 0.75, "source": "plate_scale"},
         "rotation_fit": {"success": True, "confidence": 0.95, "residual_deg": 0.2, "sample_count": 80},
         "zenith": {"success": True, "confidence": 1.0, "positive_altitude_fraction": 1.0},
+        "segmentation": {
+            "backend": "segformer",
+            "confidence": 0.85,
+            "sky_fraction": 0.30,
+            "building_fraction": 0.20,
+            "used_fallback": False,
+        },
         "time": {"estimated_time_error_seconds": 2.0},
     }
     quality.update(overrides)
@@ -71,3 +78,37 @@ def test_solver_failure_keeps_confidence_failed() -> None:
     confidence = aggregate_confidence([1.0] * 8, hard_failed=True, quality=quality)
 
     assert confidence == "failed"
+
+
+def test_segmentation_fallback_caps_confidence_at_medium() -> None:
+    quality = _quality(
+        segmentation={
+            "backend": "classic",
+            "confidence": 0.65,
+            "sky_fraction": 0.30,
+            "building_fraction": 0.20,
+            "used_fallback": True,
+        }
+    )
+
+    confidence = aggregate_confidence([1.0] * 8, quality=quality)
+
+    assert confidence == "medium"
+    assert confidence_gate_issues(quality)[0]["code"] == "segmentation_fallback"
+
+
+def test_implausible_segmentation_caps_confidence_at_low() -> None:
+    quality = _quality(
+        segmentation={
+            "backend": "segformer",
+            "confidence": 0.20,
+            "sky_fraction": 0.96,
+            "building_fraction": 0.001,
+            "used_fallback": False,
+        }
+    )
+
+    confidence = aggregate_confidence([1.0] * 8, quality=quality)
+
+    assert confidence == "low"
+    assert confidence_gate_issues(quality)[0]["code"] == "implausible_segmentation"

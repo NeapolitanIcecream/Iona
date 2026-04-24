@@ -11,6 +11,10 @@ from typing import Any, Dict, Optional
 import numpy as np
 
 from iona.pipeline.result_schema import PlateSolveResult
+from iona.solver.image_variants import (
+    cleanup_solver_image_variants,
+    make_solver_image_variants,
+)
 
 
 def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray], config: Any) -> PlateSolveResult:
@@ -38,6 +42,44 @@ def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray]
             diagnostics={"backend": "solve-field", "index_dir": str(index_path)},
         )
 
+    variants = make_solver_image_variants(image_path, sky_mask)
+    attempt_errors = []
+    last_result: Optional[PlateSolveResult] = None
+    try:
+        for variant in variants:
+            result = _solve_single_local_variant(variant.path, config, index_path)
+            last_result = result
+            result.diagnostics["attempt_label"] = variant.label
+            if result.success:
+                result.diagnostics["attempt_errors"] = attempt_errors
+                return result
+            attempt_errors.append(
+                {
+                    "attempt": variant.label,
+                    "reason": result.failure_reason or "unknown",
+                    "returncode": result.diagnostics.get("returncode"),
+                    "stdout_tail": result.diagnostics.get("stdout_tail"),
+                    "stderr_tail": result.diagnostics.get("stderr_tail"),
+                    "matched_index": result.diagnostics.get("matched_index"),
+                }
+            )
+        if len(variants) == 1 and last_result is not None:
+            return last_result
+        return PlateSolveResult(
+            success=False,
+            failure_reason="local_solve_field_all_attempts_failed",
+            diagnostics={
+                "backend": "solve-field",
+                "index_dir": str(index_path),
+                "attempt_errors": attempt_errors,
+            },
+        )
+    finally:
+        cleanup_solver_image_variants(variants)
+
+
+def _solve_single_local_variant(image_path: str, config: Any, index_path: Path) -> PlateSolveResult:
+    solve_field_path = getattr(config, "local_solve_field_path", None)
     with tempfile.TemporaryDirectory(prefix="iona-solve-field-") as tmp_dir:
         tmp_path = Path(tmp_dir)
         wcs_path = tmp_path / "solve.wcs"

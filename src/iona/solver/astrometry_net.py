@@ -10,16 +10,14 @@ import json
 import re
 import time
 from io import BytesIO
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import requests
-from PIL import Image
 
 from iona.config import SolverConfig
 from iona.pipeline.result_schema import PlateSolveResult
+from iona.solver.image_variants import cleanup_solver_image_variants, make_solver_image_variants
 from iona.solver.local_solve_field import solve_with_local_solve_field
 
 
@@ -282,35 +280,6 @@ def _extract_machine_tag_float(machine_tags: Any, key: str) -> Optional[float]:
     return None
 
 
-def _make_masked_variant(image_path: str, sky_mask: np.ndarray) -> str:
-    image = Image.open(image_path).convert("RGB")
-    array = np.asarray(image).copy()
-    mask = np.asarray(sky_mask, dtype=bool)
-    if mask.shape == array.shape[:2]:
-        array[~mask] = 0
-    tmp = NamedTemporaryFile(suffix=".png", delete=False)
-    tmp.close()
-    Image.fromarray(array).save(tmp.name)
-    return tmp.name
-
-
-def _make_star_enhanced_variant(image_path: str, sky_mask: np.ndarray) -> str:
-    image = Image.open(image_path).convert("L")
-    gray = np.asarray(image).astype(float)
-    mask = np.asarray(sky_mask, dtype=bool)
-    if mask.shape == gray.shape and np.any(mask):
-        values = gray[mask]
-        low, high = np.quantile(values, [0.60, 0.995])
-        enhanced = np.clip((gray - low) / max(high - low, 1.0), 0, 1) * 255.0
-        enhanced[~mask] = 0
-    else:
-        enhanced = gray
-    tmp = NamedTemporaryFile(suffix=".png", delete=False)
-    tmp.close()
-    Image.fromarray(np.clip(enhanced, 0, 255).astype(np.uint8)).save(tmp.name)
-    return tmp.name
-
-
 def solve_plate(
     image_path: str,
     sky_mask: Optional[np.ndarray],
@@ -338,32 +307,23 @@ def solve_plate(
             diagnostics={"backend": "astrometry-net"},
         )
 
-    variants: List[Tuple[str, str]] = [("original", image_path)]
-    temp_paths: List[str] = []
-    if sky_mask is not None:
-        try:
-            masked = _make_masked_variant(image_path, sky_mask)
-            enhanced = _make_star_enhanced_variant(image_path, sky_mask)
-            variants.extend([("sky_masked", masked), ("star_enhanced", enhanced)])
-            temp_paths.extend([masked, enhanced])
-        except Exception:
-            pass
+    variants = make_solver_image_variants(image_path, sky_mask)
 
     client = AstrometryNetClient(config.astrometry_api_key, session=session)
     errors: List[Dict[str, Any]] = []
     try:
-        for label, path in variants:
+        for variant in variants:
             retry_event_start = len(client.retry_events)
             try:
-                result = client.solve(path, config)
-                result.diagnostics["attempt_label"] = label
+                result = client.solve(variant.path, config)
+                result.diagnostics["attempt_label"] = variant.label
                 result.diagnostics["retry_events"] = client.retry_events[retry_event_start:]
                 if result.success:
                     result.diagnostics["attempt_errors"] = errors
                     return result
                 errors.append(
                     {
-                        "attempt": label,
+                        "attempt": variant.label,
                         "reason": result.failure_reason or "unknown",
                         "retry_events": client.retry_events[retry_event_start:],
                     }
@@ -371,7 +331,7 @@ def solve_plate(
             except Exception as exc:
                 errors.append(
                     {
-                        "attempt": label,
+                        "attempt": variant.label,
                         "reason": str(exc),
                         "retry_events": client.retry_events[retry_event_start:],
                     }
@@ -382,11 +342,4 @@ def solve_plate(
             diagnostics={"attempt_errors": errors},
         )
     finally:
-        for temp_path in temp_paths:
-            try:
-                Path(temp_path).unlink(missing_ok=True)
-            except TypeError:
-                try:
-                    Path(temp_path).unlink()
-                except FileNotFoundError:
-                    pass
+        cleanup_solver_image_variants(variants)

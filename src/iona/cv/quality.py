@@ -45,6 +45,7 @@ def confidence_gate_issues(quality: Mapping[str, Any]) -> List[Dict[str, str]]:
 
     issues: List[Dict[str, str]] = []
     for gate in (
+        _segmentation_gate,
         _plate_solve_gate,
         _sky_gate,
         _vertical_geometry_gate,
@@ -57,6 +58,25 @@ def confidence_gate_issues(quality: Mapping[str, Any]) -> List[Dict[str, str]]:
         if issue:
             issues.append(issue)
     return _dedupe_issues(issues)
+
+
+def _segmentation_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:
+    value = quality.get("segmentation")
+    if not isinstance(value, Mapping):
+        return None
+    confidence = _nested_float(quality, "segmentation", "confidence", 0.0) or 0.0
+    sky_fraction = _nested_float(quality, "segmentation", "sky_fraction", 0.0) or 0.0
+    building_fraction = _nested_float(quality, "segmentation", "building_fraction", 0.0) or 0.0
+    used_fallback = _nested_bool(quality, "segmentation", "used_fallback", default=False)
+    if sky_fraction < 0.03 or sky_fraction > 0.92 or building_fraction < 0.005:
+        return _issue("implausible_segmentation", "low", "Segmentation mask areas are implausible.")
+    if used_fallback:
+        return _issue("segmentation_fallback", "medium", "Model segmentation fell back to classic CV masks.")
+    if confidence < 0.35:
+        return _issue("weak_segmentation", "low", "Segmentation quality is too weak for high confidence.")
+    if confidence < 0.55:
+        return _issue("weak_segmentation", "medium", "Segmentation quality limits confidence.")
+    return None
 
 
 def _plate_solve_gate(quality: Mapping[str, Any]) -> Optional[Dict[str, str]]:

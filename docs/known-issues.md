@@ -12,14 +12,17 @@ or coverage than it has.
   writes JSON plus an optional Markdown report.
 - Accuracy is still prototype-level. The best current sample is about 133 km
   from ground truth, while another successful sample is about 1070 km off and
-  is capped to medium confidence by weak vertical-geometry diagnostics.
+  is capped to medium confidence by segmentation fallback and weak
+  vertical-geometry diagnostics.
 - The current tests validate the math chain and failure diagnostics, but not
-  external solver behavior or real night-scene CV quality.
+  external solver behavior or real night-scene CV quality with downloaded model
+  weights.
 
 ## Implemented With MVP Limits
 
-- Sky and building segmentation use simple OpenCV/statistical rules. They can
-  fail on clouds, bright signage, heavy light pollution, or unusual architecture.
+- Sky and building segmentation can use an optional SegFormer ADE20K backend.
+  If the optional ML dependencies or model weights are unavailable, the pipeline
+  falls back to simple OpenCV/statistical rules and caps confidence.
 - Building vertical detection depends on line segments. It can fail when the
   building is too small, curved, occluded, or dominated by decorative/window
   lines.
@@ -40,7 +43,9 @@ or coverage than it has.
 - The report module only has a minimal text summary. It does not generate a
   full HTML or PDF explanation report.
 - Error propagation and Monte Carlo uncertainty estimates are not implemented.
-- Lightweight semantic segmentation backends are not implemented.
+- SegFormer support is optional and untrained for this project. Its labels help
+  separate sky and building-like regions, but it is not a guarantee of correct
+  geometry.
 - Lens distortion calibration and correction are not implemented.
 
 ## Next Validation Tasks

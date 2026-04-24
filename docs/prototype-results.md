@@ -72,24 +72,27 @@ All four prototype images pass the dry CV smoke check with `--solver none`.
 ## Location Accuracy
 
 These results use local `solve-field` with the indexes above and the
-`validate-prototypes` command.
+`validate-prototypes` command. The latest run used the default
+`--segmentation-backend auto` without the optional `ml` extra installed, so the
+pipeline fell back to classic CV masks and capped successful confidence at
+`medium`.
 
 | Image | Ground Truth | Iona Estimate | Status | Confidence | Error | Main reason |
 | --- | --- | --- | --- | --- | ---: | --- |
-| `astronomical_observatory_118127341` | `42.4463, 13.5604` | `35.1208, 5.5419` | Success | Medium | about 1070 km | `weak_vertical_geometry` |
-| `headlands_telescope_milky_way` | `45.7782, -84.7908` | `46.0958, -86.4487` | Success | High | about 133 km | n/a |
-| `gazing_milky_way_blanco_telescope` | `-30.1697, -70.8065` | none | Failed | Failed | n/a | `local_solve_field_no_solution` |
-| `kosovo_skywatcher_milky_way` | `41.9509, 20.7080` | none | Failed | Failed | n/a | `local_solve_field_no_solution` |
+| `astronomical_observatory_118127341` | `42.4463, 13.5604` | `35.1208, 5.5419` | Success | Medium | about 1070 km | `segmentation_fallback` |
+| `headlands_telescope_milky_way` | `45.7782, -84.7908` | `46.0958, -86.4487` | Success | Medium | about 133 km | `segmentation_fallback` |
+| `gazing_milky_way_blanco_telescope` | `-30.1697, -70.8065` | none | Failed | Failed | n/a | `local_solve_field_all_attempts_failed` |
+| `kosovo_skywatcher_milky_way` | `41.9509, 20.7080` | none | Failed | Failed | n/a | `local_solve_field_all_attempts_failed` |
 
 `headlands_telescope_milky_way` is the best current end-to-end sample. The
 observatory and Blanco images have timestamp caveats in `manifest.json`, so do
 not use them for final accuracy claims without confirming original capture
 times.
 
-The observatory sample intentionally no longer reports `high` confidence. Its
-large error is now capped to `medium` by the confidence gate because only six
-candidate vertical lines and five vanishing-point inliers support the foreground
-geometry.
+The observatory sample intentionally does not report `high` confidence. Its
+large error is capped by confidence gates because model segmentation fell back
+to classic CV and only six candidate vertical lines and five vanishing-point
+inliers support the foreground geometry.
 
 ## Known Interpretation Limits
 

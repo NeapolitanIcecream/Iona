@@ -10,7 +10,7 @@ from typing import Optional
 from iona.config import PipelineConfig
 from iona.cv.line_detection import detect_building_lines
 from iona.cv.preprocess import load_rgb_image
-from iona.cv.sky_mask import estimate_sky_mask
+from iona.cv.segmentation import DEFAULT_SEGFORMER_MODEL, estimate_scene_masks
 from iona.cv.star_detection import detect_star_candidates
 from iona.cv.vanishing_point import estimate_vertical_vanishing_point
 from iona.pipeline.auto_estimate import run_auto_pipeline
@@ -37,20 +37,33 @@ def _run_auto(
     astrometry_api_key: Optional[str],
     timeout_seconds: int,
     timezone_hint: Optional[str],
+    segmentation_backend: str,
+    segmentation_model: str,
 ) -> None:
     utc_time = parse_utc_datetime(utc, timezone_hint=timezone_hint)
     config = PipelineConfig.default(
         solver=solver,
         astrometry_api_key=astrometry_api_key,
         timeout_seconds=timeout_seconds,
+        segmentation_backend=segmentation_backend,
+        segmentation_model=segmentation_model,
     )
     result = run_auto_pipeline(image, utc_time, config)
     result.save_json(output)
     if viz:
         rgb = load_rgb_image(image)
-        sky = estimate_sky_mask(rgb)
+        scene = estimate_scene_masks(
+            rgb,
+            backend=config.segmentation_backend,
+            model_id=config.segmentation_model,
+        )
+        sky = scene.sky
         stars = detect_star_candidates(rgb, sky.sky_mask) if sky.sky_mask is not None else None
-        lines = detect_building_lines(rgb, sky.sky_mask) if sky.sky_mask is not None else None
+        lines = (
+            detect_building_lines(rgb, sky.sky_mask, building_mask=scene.building_mask)
+            if sky.sky_mask is not None
+            else None
+        )
         vp = (
             estimate_vertical_vanishing_point(lines.candidate_vertical_lines, rgb.shape[:2])
             if lines
@@ -69,11 +82,15 @@ def _run_validate_prototypes(
     report: Optional[str],
     astrometry_api_key: Optional[str],
     timeout_seconds: int,
+    segmentation_backend: str,
+    segmentation_model: str,
 ) -> None:
     config = PipelineConfig.default(
         solver=solver,
         astrometry_api_key=astrometry_api_key,
         timeout_seconds=timeout_seconds,
+        segmentation_backend=segmentation_backend,
+        segmentation_model=segmentation_model,
     )
     validation = validate_prototype_manifest(manifest, config=config)
     output_path = Path(output)
@@ -103,8 +120,21 @@ if typer is not None:
         astrometry_api_key: Optional[str] = typer.Option(None, "--astrometry-api-key", help="Astrometry.net API key."),
         timeout_seconds: int = typer.Option(600, "--timeout-seconds", help="Plate solver timeout."),
         timezone_hint: Optional[str] = typer.Option(None, "--timezone", help="Timezone for naive local timestamps."),
+        segmentation_backend: str = typer.Option("auto", "--segmentation-backend", help="Segmentation backend: auto, classic, or segformer."),
+        segmentation_model: str = typer.Option(DEFAULT_SEGFORMER_MODEL, "--segmentation-model", help="SegFormer model id."),
     ) -> None:
-        _run_auto(image, utc, solver, output, viz, astrometry_api_key, timeout_seconds, timezone_hint)
+        _run_auto(
+            image,
+            utc,
+            solver,
+            output,
+            viz,
+            astrometry_api_key,
+            timeout_seconds,
+            timezone_hint,
+            segmentation_backend,
+            segmentation_model,
+        )
 
     @app.command("validate-prototypes")
     def validate_prototypes(
@@ -114,8 +144,19 @@ if typer is not None:
         report: Optional[str] = typer.Option(None, "--report", help="Optional Markdown report path."),
         astrometry_api_key: Optional[str] = typer.Option(None, "--astrometry-api-key", help="Astrometry.net API key."),
         timeout_seconds: int = typer.Option(120, "--timeout-seconds", help="Per-image plate solver timeout."),
+        segmentation_backend: str = typer.Option("auto", "--segmentation-backend", help="Segmentation backend: auto, classic, or segformer."),
+        segmentation_model: str = typer.Option(DEFAULT_SEGFORMER_MODEL, "--segmentation-model", help="SegFormer model id."),
     ) -> None:
-        _run_validate_prototypes(manifest, solver, output, report, astrometry_api_key, timeout_seconds)
+        _run_validate_prototypes(
+            manifest,
+            solver,
+            output,
+            report,
+            astrometry_api_key,
+            timeout_seconds,
+            segmentation_backend,
+            segmentation_model,
+        )
 
     def main() -> None:
         app()
@@ -134,6 +175,8 @@ else:
         auto_parser.add_argument("--astrometry-api-key")
         auto_parser.add_argument("--timeout-seconds", type=int, default=600)
         auto_parser.add_argument("--timezone")
+        auto_parser.add_argument("--segmentation-backend", default="auto")
+        auto_parser.add_argument("--segmentation-model", default=DEFAULT_SEGFORMER_MODEL)
         validate_parser = sub.add_parser("validate-prototypes")
         validate_parser.add_argument("--manifest", default=str(default_manifest_path()))
         validate_parser.add_argument("--solver", default="local")
@@ -141,6 +184,8 @@ else:
         validate_parser.add_argument("--report")
         validate_parser.add_argument("--astrometry-api-key")
         validate_parser.add_argument("--timeout-seconds", type=int, default=120)
+        validate_parser.add_argument("--segmentation-backend", default="auto")
+        validate_parser.add_argument("--segmentation-model", default=DEFAULT_SEGFORMER_MODEL)
         args = parser.parse_args()
         if args.command == "auto":
             _run_auto(
@@ -152,6 +197,8 @@ else:
                 args.astrometry_api_key,
                 args.timeout_seconds,
                 args.timezone,
+                args.segmentation_backend,
+                args.segmentation_model,
             )
         if args.command == "validate-prototypes":
             _run_validate_prototypes(
@@ -161,6 +208,8 @@ else:
                 args.report,
                 args.astrometry_api_key,
                 args.timeout_seconds,
+                args.segmentation_backend,
+                args.segmentation_model,
             )
 
 
