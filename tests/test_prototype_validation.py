@@ -73,7 +73,10 @@ def test_packaged_fallback_manifest_references_packaged_images() -> None:
     manifest = load_prototype_manifest(packaged_manifest)
 
     for photo in manifest["photos"]:
-        assert (packaged_manifest.parent / photo["file"]).is_file()
+        image_path = packaged_manifest.parent / photo["file"]
+        assert image_path.is_file()
+        with Image.open(image_path) as image:
+            assert image.format == "JPEG"
 
 
 def test_validate_prototype_manifest_skips_when_local_solver_is_unavailable(tmp_path) -> None:
