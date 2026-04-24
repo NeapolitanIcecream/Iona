@@ -115,6 +115,23 @@ class StarDetectionResult:
 
 
 @dataclass
+class SceneMaskResult:
+    sky: SkyMaskResult
+    building_mask: Optional[np.ndarray]
+    backend: str
+    model_id: Optional[str]
+    confidence: float
+    used_fallback: bool = False
+    fallback_reason: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def sky_mask(self) -> Optional[np.ndarray]:
+        return self.sky.sky_mask
+
+
+@dataclass
 class PlateSolveResult:
     success: bool
     wcs_header: Optional[Dict[str, Any]] = None

@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import re
+import math
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
 
 from iona.pipeline.result_schema import PlateSolveResult
+from iona.solver.image_variants import (
+    cleanup_solver_image_variants,
+    make_solver_image_variants,
+)
 
 
 def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray], config: Any) -> PlateSolveResult:
@@ -38,6 +44,98 @@ def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray]
             diagnostics={"backend": "solve-field", "index_dir": str(index_path)},
         )
 
+    variants = make_solver_image_variants(image_path, sky_mask)
+    try:
+        return _solve_local_variants(variants, config, index_path)
+    finally:
+        cleanup_solver_image_variants(variants)
+
+
+def _solve_local_variants(variants: list[Any], config: Any, index_path: Path) -> PlateSolveResult:
+    timeout_seconds = int(getattr(config, "timeout_seconds", 600))
+    deadline = time.monotonic() + timeout_seconds
+    attempt_errors = []
+    last_result: Optional[PlateSolveResult] = None
+
+    for attempt_index, variant in enumerate(variants):
+        remaining_seconds = _remaining_attempt_seconds(attempt_index, timeout_seconds, deadline)
+        result = _solve_local_variant_or_timeout(variant.path, config, index_path, remaining_seconds, timeout_seconds)
+        last_result = result
+        result.diagnostics["attempt_label"] = variant.label
+        if result.success:
+            result.diagnostics["attempt_errors"] = attempt_errors
+            return result
+        attempt_errors.append(_attempt_error(variant.label, result))
+
+    if len(variants) == 1 and last_result is not None:
+        return last_result
+    return PlateSolveResult(
+        success=False,
+        failure_reason=_collapsed_failure_reason(attempt_errors),
+        diagnostics={
+            "backend": "solve-field",
+            "index_dir": str(index_path),
+            "timeout_seconds": timeout_seconds,
+            "attempt_errors": attempt_errors,
+        },
+    )
+
+
+def _remaining_attempt_seconds(attempt_index: int, timeout_seconds: int, deadline: float) -> float:
+    return float(timeout_seconds) if attempt_index == 0 else deadline - time.monotonic()
+
+
+def _solve_local_variant_or_timeout(
+    image_path: str,
+    config: Any,
+    index_path: Path,
+    remaining_seconds: float,
+    timeout_seconds: int,
+) -> PlateSolveResult:
+    if remaining_seconds <= 0:
+        return PlateSolveResult(
+            success=False,
+            failure_reason="local_solve_field_timeout",
+            diagnostics={
+                "backend": "solve-field",
+                "index_dir": str(index_path),
+                "timeout_seconds": timeout_seconds,
+            },
+        )
+    return _solve_single_local_variant(
+        image_path,
+        config,
+        index_path,
+        remaining_timeout_seconds=remaining_seconds,
+        total_timeout_seconds=timeout_seconds,
+    )
+
+
+def _attempt_error(label: str, result: PlateSolveResult) -> Dict[str, Any]:
+    return {
+        "attempt": label,
+        "reason": result.failure_reason or "unknown",
+        "returncode": result.diagnostics.get("returncode"),
+        "stdout_tail": result.diagnostics.get("stdout_tail"),
+        "stderr_tail": result.diagnostics.get("stderr_tail"),
+        "matched_index": result.diagnostics.get("matched_index"),
+    }
+
+
+def _solve_single_local_variant(
+    image_path: str,
+    config: Any,
+    index_path: Path,
+    remaining_timeout_seconds: Optional[float] = None,
+    total_timeout_seconds: Optional[int] = None,
+) -> PlateSolveResult:
+    solve_field_path = getattr(config, "local_solve_field_path", None)
+    configured_timeout = int(getattr(config, "timeout_seconds", 600))
+    solver_timeout_seconds = max(
+        1,
+        math.ceil(remaining_timeout_seconds if remaining_timeout_seconds is not None else configured_timeout),
+    )
+    total_timeout_seconds = configured_timeout if total_timeout_seconds is None else total_timeout_seconds
     with tempfile.TemporaryDirectory(prefix="iona-solve-field-") as tmp_dir:
         tmp_path = Path(tmp_dir)
         wcs_path = tmp_path / "solve.wcs"
@@ -70,7 +168,7 @@ def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray]
             "--index-dir",
             str(index_path),
             "--cpulimit",
-            str(int(getattr(config, "timeout_seconds", 600))),
+            str(solver_timeout_seconds),
             "--downsample",
             str(max(1, int(getattr(config, "local_downsample", 2)))),
         ]
@@ -98,7 +196,7 @@ def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray]
                 command,
                 capture_output=True,
                 text=True,
-                timeout=int(getattr(config, "timeout_seconds", 600)) + 30,
+                timeout=solver_timeout_seconds,
                 check=False,
             )
         except OSError as exc:
@@ -121,7 +219,8 @@ def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray]
                     "backend": "solve-field",
                     "command": command,
                     "index_dir": str(index_path),
-                    "timeout_seconds": int(getattr(config, "timeout_seconds", 600)),
+                    "timeout_seconds": total_timeout_seconds,
+                    "attempt_timeout_seconds": solver_timeout_seconds,
                 },
             )
 
@@ -129,6 +228,8 @@ def solve_with_local_solve_field(image_path: str, sky_mask: Optional[np.ndarray]
             "backend": "solve-field",
             "command": command,
             "index_dir": str(index_path),
+            "timeout_seconds": total_timeout_seconds,
+            "attempt_timeout_seconds": solver_timeout_seconds,
             "returncode": proc.returncode,
             "stdout_tail": proc.stdout[-4000:],
             "stderr_tail": proc.stderr[-4000:],
@@ -175,6 +276,19 @@ def _read_wcs_header(wcs_path: Path) -> Dict[str, Any]:
 
     with fits.open(wcs_path) as hdul:
         return dict(hdul[0].header)
+
+
+def _collapsed_failure_reason(attempt_errors: list[Dict[str, Any]]) -> str:
+    reasons = [
+        str(error.get("reason"))
+        for error in attempt_errors
+        if isinstance(error, dict) and error.get("reason")
+    ]
+    if "local_solve_field_timeout" in reasons:
+        return "local_solve_field_timeout"
+    if reasons and all(reason == reasons[0] for reason in reasons) and reasons[0] != "local_solve_field_no_solution":
+        return reasons[0]
+    return "local_solve_field_all_attempts_failed"
 
 
 def _float_or_none(value: Any) -> Optional[float]:

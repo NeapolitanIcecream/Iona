@@ -25,3 +25,17 @@ def test_reversed_vertical_lines_are_vertical_candidates() -> None:
     result = detect_building_lines(image, sky_mask)
 
     assert len(result.candidate_vertical_lines) >= 2
+
+
+def test_building_mask_limits_detected_lines_to_foreground_region() -> None:
+    image = np.zeros((120, 160, 3), dtype=np.uint8)
+    image[15:110, 40:43] = 255
+    image[15:110, 120:123] = 255
+    sky_mask = np.zeros((120, 160), dtype=bool)
+    building_mask = np.zeros((120, 160), dtype=bool)
+    building_mask[:, :80] = True
+
+    result = detect_building_lines(image, sky_mask, building_mask=building_mask)
+
+    assert result.line_segments
+    assert all(line.midpoint.x < 80 for line in result.line_segments)

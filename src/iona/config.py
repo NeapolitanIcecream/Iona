@@ -57,6 +57,8 @@ class SolverConfig:
 @dataclass
 class PipelineConfig:
     solver: SolverConfig
+    segmentation_backend: str = "auto"
+    segmentation_model: str = "nvidia/segformer-b0-finetuned-ade-512-512"
     min_star_count: int = 12
     min_vertical_lines: int = 3
     time_error_seconds: float = 2.0
@@ -68,13 +70,17 @@ class PipelineConfig:
         solver: str = "astrometry-net",
         astrometry_api_key: Optional[str] = None,
         timeout_seconds: int = 600,
+        segmentation_backend: str = "auto",
+        segmentation_model: str = "nvidia/segformer-b0-finetuned-ade-512-512",
     ) -> "PipelineConfig":
         return cls(
             solver=SolverConfig.from_env(
                 solver=solver,
                 astrometry_api_key=astrometry_api_key,
                 timeout_seconds=timeout_seconds,
-            )
+            ),
+            segmentation_backend=segmentation_backend,
+            segmentation_model=segmentation_model,
         )
 
 

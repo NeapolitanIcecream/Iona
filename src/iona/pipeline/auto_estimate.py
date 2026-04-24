@@ -17,7 +17,7 @@ from iona.config import PipelineConfig
 from iona.cv.line_detection import detect_building_lines
 from iona.cv.preprocess import load_rgb_image, save_rgb_image_temp
 from iona.cv.quality import aggregate_confidence, confidence_gate_issues
-from iona.cv.sky_mask import estimate_sky_mask
+from iona.cv.segmentation import SegmentationBackendError, estimate_scene_masks
 from iona.cv.star_detection import detect_star_candidates
 from iona.cv.vanishing_point import estimate_vertical_vanishing_point
 from iona.exif import read_exif
@@ -139,6 +139,7 @@ def _quality_dict(**items: Any) -> Dict[str, Any]:
 
 def _quality_confidence_scores(quality: Dict[str, Any]) -> List[float]:
     return [
+        _quality_score(quality, "segmentation"),
         _quality_score(quality, "sky_detection"),
         _quality_score(quality, "star_detection"),
         1.0 if quality.get("plate_solve", {}).get("success") else 0.0,
@@ -155,6 +156,20 @@ def _quality_score(quality: Dict[str, Any], section: str) -> float:
         return float(quality.get(section, {}).get("confidence", 0.0))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _plate_attempt_failure_reasons(plate: PlateSolveResult) -> List[str]:
+    attempt_errors = plate.diagnostics.get("attempt_errors", [])
+    if not isinstance(attempt_errors, list):
+        return []
+    reasons = []
+    for error in attempt_errors:
+        if not isinstance(error, dict):
+            continue
+        reason = error.get("reason")
+        if isinstance(reason, str) and reason:
+            reasons.append(reason)
+    return reasons
 
 
 def _final_confidence(
@@ -204,6 +219,164 @@ def _record_line_detection(
     return True
 
 
+def _record_star_detection(
+    stars: Any,
+    config: PipelineConfig,
+    diagnostics: List[PipelineEvent],
+    warnings: List[str],
+    failure_reasons: List[str],
+) -> None:
+    if stars is None:
+        failure_reasons.append("star_detection_failed")
+        diagnostics.append(_event("star_detection", "failed", "Star detection could not run"))
+        return
+
+    warnings.extend(stars.warnings)
+    star_details = {**stars.diagnostics, "min_star_count": config.min_star_count}
+    if stars.star_count < config.min_star_count:
+        failure_reasons.append("not_enough_stars")
+        warnings.append("Too few star candidates detected for reliable zenith/nadir disambiguation.")
+        diagnostics.append(_event("star_detection", "failed", "Too few star candidates detected", **star_details))
+        return
+
+    diagnostics.append(_event("star_detection", "ok", "Star candidates detected", **star_details))
+
+
+def _solve_and_record_plate(
+    image: np.ndarray,
+    sky_mask: Optional[np.ndarray],
+    config: PipelineConfig,
+    diagnostics: List[PipelineEvent],
+    failure_reasons: List[str],
+) -> PlateSolveResult:
+    solver_image_path = save_rgb_image_temp(image)
+    try:
+        plate: PlateSolveResult = solve_plate(solver_image_path, sky_mask, config.solver)
+    finally:
+        try:
+            Path(solver_image_path).unlink()
+        except FileNotFoundError:
+            pass
+
+    if not plate.success:
+        _record_plate_failure(plate, diagnostics, failure_reasons)
+        return plate
+
+    diagnostics.append(
+        _event(
+            "plate_solve",
+            "ok",
+            "Plate solving succeeded",
+            input_orientation="exif_transposed",
+            **plate.diagnostics,
+        )
+    )
+    return plate
+
+
+def _record_plate_failure(
+    plate: PlateSolveResult,
+    diagnostics: List[PipelineEvent],
+    failure_reasons: List[str],
+) -> None:
+    failure_reasons.append("plate_solve_failed")
+    if plate.failure_reason:
+        failure_reasons.append(plate.failure_reason)
+        if "timeout" in plate.failure_reason:
+            failure_reasons.append("solver_timeout")
+    for attempt_reason in _plate_attempt_failure_reasons(plate):
+        if "timeout" in attempt_reason:
+            failure_reasons.append(attempt_reason)
+            failure_reasons.append("solver_timeout")
+    diagnostics.append(
+        _event(
+            "plate_solve",
+            "failed",
+            "Plate solving failed",
+            input_orientation="exif_transposed",
+            **plate.diagnostics,
+        )
+    )
+
+
+def _record_rotation_fit(
+    rotation: RotationFitResult,
+    diagnostics: List[PipelineEvent],
+    failure_reasons: List[str],
+) -> None:
+    if not rotation.success:
+        failure_reasons.append("rotation_fit_failed")
+        if rotation.failure_reason:
+            failure_reasons.append(rotation.failure_reason)
+        diagnostics.append(
+            _event("rotation_fit", "failed", "Camera-to-celestial rotation failed", **rotation.diagnostics)
+        )
+        return
+    diagnostics.append(_event("rotation_fit", "ok", "Camera-to-celestial rotation fitted", **rotation.diagnostics))
+
+
+def _location_from_zenith_step(
+    zenith: Optional[ZenithEstimate],
+    utc_time: datetime,
+    config: PipelineConfig,
+    diagnostics: List[PipelineEvent],
+    warnings: List[str],
+    failure_reasons: List[str],
+) -> Any:
+    if zenith and zenith.success:
+        warnings.extend(zenith.warnings)
+        diagnostics.append(_event("zenith", "ok", "Zenith RA/Dec estimated", **zenith.diagnostics))
+        return estimate_location_from_zenith(
+            zenith.ra_deg,
+            zenith.dec_deg,
+            utc_time,
+            estimated_time_error_seconds=config.time_error_seconds,
+        )
+
+    failure_reasons.append("zenith_estimation_failed")
+    if zenith and zenith.failure_reason:
+        failure_reasons.append(zenith.failure_reason)
+    diagnostics.append(_event("zenith", "failed", "Zenith estimation failed"))
+    return None
+
+
+def _segmentation_failure_result(
+    exc: SegmentationBackendError,
+    config: PipelineConfig,
+    diagnostics: List[PipelineEvent],
+    warnings: List[str],
+    failure_reasons: List[str],
+) -> IonaResult:
+    failure_reasons.extend(["segmentation_failed", exc.reason])
+    warnings.append("Segmentation failed for the requested backend.")
+    details = {
+        "requested_backend": config.segmentation_backend,
+        "backend": exc.backend,
+        "model_id": exc.model_id,
+        "failure_reason": exc.reason,
+    }
+    if exc.original_error is not None:
+        details["error"] = str(exc.original_error)
+    diagnostics.append(_event("segmentation", "failed", "Scene segmentation failed", **details))
+    return IonaResult(
+        success=False,
+        estimated_location=None,
+        confidence="failed",
+        quality={
+            "segmentation": _quality_dict(
+                backend=exc.backend,
+                model_id=exc.model_id,
+                confidence=0.0,
+                used_fallback=False,
+                failure_reason=exc.reason,
+            )
+        },
+        warnings=warnings,
+        failure_reasons=failure_reasons,
+        diagnostics=diagnostics,
+    )
+
+
 def run_auto_pipeline(
     image_path: str,
     utc_time: datetime,
@@ -222,63 +395,31 @@ def run_auto_pipeline(
     height, width = image.shape[:2]
     diagnostics.append(_event("image", "ok", "Image loaded", width=width, height=height))
 
-    sky = estimate_sky_mask(image)
+    try:
+        scene = estimate_scene_masks(
+            image,
+            backend=config.segmentation_backend,
+            model_id=config.segmentation_model,
+        )
+    except SegmentationBackendError as exc:
+        return _segmentation_failure_result(exc, config, diagnostics, warnings, failure_reasons)
+    warnings.extend(scene.warnings)
+    diagnostics.append(_event("segmentation", "ok", "Scene masks estimated", **scene.diagnostics))
+    sky = scene.sky
     warnings.extend(sky.warnings)
     diagnostics.append(_event("sky_detection", "ok", "Sky mask estimated", **sky.diagnostics))
 
     stars = detect_star_candidates(image, sky.sky_mask) if sky.sky_mask is not None else None
-    if stars is None:
-        failure_reasons.append("star_detection_failed")
-        diagnostics.append(_event("star_detection", "failed", "Star detection could not run"))
-    else:
-        warnings.extend(stars.warnings)
-        star_details = {**stars.diagnostics, "min_star_count": config.min_star_count}
-        if stars.star_count < config.min_star_count:
-            failure_reasons.append("not_enough_stars")
-            warnings.append("Too few star candidates detected for reliable zenith/nadir disambiguation.")
-            diagnostics.append(
-                _event("star_detection", "failed", "Too few star candidates detected", **star_details)
-            )
-        else:
-            diagnostics.append(_event("star_detection", "ok", "Star candidates detected", **star_details))
+    _record_star_detection(stars, config, diagnostics, warnings, failure_reasons)
 
-    lines = detect_building_lines(image, sky.sky_mask) if sky.sky_mask is not None else None
+    lines = (
+        detect_building_lines(image, sky.sky_mask, building_mask=scene.building_mask)
+        if sky.sky_mask is not None
+        else None
+    )
     enough_vertical_lines = _record_line_detection(lines, config, diagnostics, warnings, failure_reasons)
 
-    solver_image_path = save_rgb_image_temp(image)
-    try:
-        plate: PlateSolveResult = solve_plate(solver_image_path, sky.sky_mask, config.solver)
-    finally:
-        try:
-            Path(solver_image_path).unlink()
-        except FileNotFoundError:
-            pass
-
-    if not plate.success:
-        failure_reasons.append("plate_solve_failed")
-        if plate.failure_reason:
-            failure_reasons.append(plate.failure_reason)
-            if "timeout" in plate.failure_reason:
-                failure_reasons.append("solver_timeout")
-        diagnostics.append(
-            _event(
-                "plate_solve",
-                "failed",
-                "Plate solving failed",
-                input_orientation="exif_transposed",
-                **plate.diagnostics,
-            )
-        )
-    else:
-        diagnostics.append(
-            _event(
-                "plate_solve",
-                "ok",
-                "Plate solving succeeded",
-                input_orientation="exif_transposed",
-                **plate.diagnostics,
-            )
-        )
+    plate = _solve_and_record_plate(image, sky.sky_mask, config, diagnostics, failure_reasons)
 
     intrinsics = estimate_camera_intrinsics((height, width), exif_info=exif_info, plate_result=plate)
     warnings.extend(intrinsics.warnings)
@@ -303,37 +444,26 @@ def run_auto_pipeline(
     wcs = plate.to_wcs() if plate.success else None
     sample_pixels = _sample_sky_pixels(sky.sky_mask, width, height)
     rotation = fit_camera_to_celestial_rotation(wcs, intrinsics, sample_pixels)
-    if not rotation.success:
-        failure_reasons.append("rotation_fit_failed")
-        if rotation.failure_reason:
-            failure_reasons.append(rotation.failure_reason)
-        diagnostics.append(_event("rotation_fit", "failed", "Camera-to-celestial rotation failed", **rotation.diagnostics))
-    else:
-        diagnostics.append(_event("rotation_fit", "ok", "Camera-to-celestial rotation fitted", **rotation.diagnostics))
+    _record_rotation_fit(rotation, diagnostics, failure_reasons)
 
     usable_star_points = (
         stars.star_candidates if stars is not None and stars.star_count >= config.min_star_count else []
     )
     solved_star_dirs = _star_dirs_from_wcs(wcs, usable_star_points)
     zenith = estimate_zenith_radec(vp, intrinsics, rotation, solved_star_dirs) if vp else None
-    if zenith and zenith.success:
-        warnings.extend(zenith.warnings)
-        diagnostics.append(_event("zenith", "ok", "Zenith RA/Dec estimated", **zenith.diagnostics))
-        location = estimate_location_from_zenith(
-            zenith.ra_deg,
-            zenith.dec_deg,
-            utc_time,
-            estimated_time_error_seconds=config.time_error_seconds,
-        )
-    else:
-        location = None
-        failure_reasons.append("zenith_estimation_failed")
-        if zenith and zenith.failure_reason:
-            failure_reasons.append(zenith.failure_reason)
-        diagnostics.append(_event("zenith", "failed", "Zenith estimation failed"))
+    location = _location_from_zenith_step(zenith, utc_time, config, diagnostics, warnings, failure_reasons)
 
     quality = {
         "sky_detection": _quality_dict(confidence=sky.confidence, sky_fraction=sky.sky_fraction),
+        "segmentation": _quality_dict(
+            backend=scene.backend,
+            model_id=scene.model_id,
+            confidence=scene.confidence,
+            used_fallback=scene.used_fallback,
+            fallback_reason=scene.fallback_reason,
+            sky_fraction=sky.sky_fraction,
+            building_fraction=scene.diagnostics.get("building_fraction"),
+        ),
         "star_detection": _quality_dict(
             confidence=stars.confidence if stars else 0.0,
             star_count=stars.star_count if stars else 0,

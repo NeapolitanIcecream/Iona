@@ -3,8 +3,11 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
+import numpy as np
+
 from iona.config import SolverConfig
 from iona.solver import local_solve_field
+from iona.solver.image_variants import SolverImageVariant
 
 
 def _fits_header_bytes() -> bytes:
@@ -36,7 +39,7 @@ def test_local_solve_field_returns_wcs_from_solve_field_outputs(tmp_path, monkey
     def fake_run(cmd, capture_output, text, timeout, check):
         assert capture_output is True
         assert text is True
-        assert timeout == 60
+        assert timeout == 30
         assert check is False
         out_dir = Path(cmd[cmd.index("--dir") + 1])
         wcs_path = Path(cmd[cmd.index("--wcs") + 1])
@@ -103,7 +106,7 @@ def test_local_solve_field_reports_timeout(tmp_path, monkeypatch) -> None:
     def fake_run(cmd, capture_output, text, timeout, check):
         assert capture_output is True
         assert text is True
-        assert timeout == 37
+        assert timeout == 7
         assert check is False
         raise local_solve_field.subprocess.TimeoutExpired(cmd=cmd, timeout=timeout)
 
@@ -158,3 +161,188 @@ def test_local_solve_field_parses_index_filename_from_stdout() -> None:
     stdout = "Field 1: solved with index index-4119.fits.\n"
 
     assert local_solve_field._parse_matched_index(stdout) == "index-4119.fits"
+
+
+def test_local_solve_field_tries_masked_variants_until_one_solves(tmp_path, monkeypatch) -> None:
+    """Local solve should try original, sky-masked, then star-enhanced variants."""
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(b"fake-image")
+    index_dir = tmp_path / "indexes"
+    index_dir.mkdir()
+    sky_mask = np.ones((8, 10), dtype=bool)
+    calls = []
+
+    def fake_variants(path, mask):  # noqa: ARG001
+        return [
+            SolverImageVariant("original", path, False),
+            SolverImageVariant("sky_masked", str(tmp_path / "masked.png"), True),
+            SolverImageVariant("star_enhanced", str(tmp_path / "enhanced.png"), True),
+        ]
+
+    def fake_cleanup(variants):  # noqa: ARG001
+        return None
+
+    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+        calls.append(Path(cmd[1]).name)
+        out_dir = Path(cmd[cmd.index("--dir") + 1])
+        wcs_path = Path(cmd[cmd.index("--wcs") + 1])
+        solved_path = Path(cmd[cmd.index("--solved") + 1])
+        if len(calls) == 3:
+            wcs_path.write_bytes(_fits_header_bytes())
+            solved_path.write_text("1\n")
+
+        class Result:
+            returncode = 0
+            stdout = "Field 1: solved with index index-4119.fits.\n" if len(calls) == 3 else "Did not solve.\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(local_solve_field, "make_solver_image_variants", fake_variants)
+    monkeypatch.setattr(local_solve_field, "cleanup_solver_image_variants", fake_cleanup)
+    monkeypatch.setattr(local_solve_field.subprocess, "run", fake_run)
+
+    result = local_solve_field.solve_with_local_solve_field(
+        image_path=str(image_path),
+        sky_mask=sky_mask,
+        config=SolverConfig(
+            solver="local",
+            timeout_seconds=30,
+            local_index_dir=str(index_dir),
+            local_solve_field_path="/opt/homebrew/bin/solve-field",
+        ),
+    )
+
+    assert result.success
+    assert result.diagnostics["attempt_label"] == "star_enhanced"
+    assert [error["attempt"] for error in result.diagnostics["attempt_errors"]] == ["original", "sky_masked"]
+    assert calls == ["image.png", "masked.png", "enhanced.png"]
+
+
+def test_local_solve_field_shares_timeout_budget_across_variants(tmp_path, monkeypatch) -> None:
+    """A multi-variant solve should respect one per-image timeout budget."""
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(b"fake-image")
+    index_dir = tmp_path / "indexes"
+    index_dir.mkdir()
+    observed_timeouts = []
+    times = iter([100.0, 103.0, 105.0])
+
+    def fake_variants(path, mask):  # noqa: ARG001
+        return [
+            SolverImageVariant("original", path, False),
+            SolverImageVariant("sky_masked", str(tmp_path / "masked.png"), True),
+        ]
+
+    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+        observed_timeouts.append(timeout)
+
+        class Result:
+            returncode = 0
+            stdout = "Did not solve.\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(local_solve_field, "make_solver_image_variants", fake_variants)
+    monkeypatch.setattr(local_solve_field, "cleanup_solver_image_variants", lambda variants: None)
+    monkeypatch.setattr(local_solve_field.subprocess, "run", fake_run)
+    monkeypatch.setattr(local_solve_field.time, "monotonic", lambda: next(times))
+
+    result = local_solve_field.solve_with_local_solve_field(
+        image_path=str(image_path),
+        sky_mask=np.ones((8, 10), dtype=bool),
+        config=SolverConfig(
+            solver="local",
+            timeout_seconds=7,
+            local_index_dir=str(index_dir),
+            local_solve_field_path="/opt/homebrew/bin/solve-field",
+        ),
+    )
+
+    assert not result.success
+    assert observed_timeouts == [7, 4]
+    assert result.diagnostics["timeout_seconds"] == 7
+
+
+def test_local_solve_field_stops_when_shared_timeout_budget_is_exhausted(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(b"fake-image")
+    index_dir = tmp_path / "indexes"
+    index_dir.mkdir()
+    calls = []
+    times = iter([100.0, 108.0])
+
+    def fake_variants(path, mask):  # noqa: ARG001
+        return [
+            SolverImageVariant("original", path, False),
+            SolverImageVariant("sky_masked", str(tmp_path / "masked.png"), True),
+        ]
+
+    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+        calls.append(Path(cmd[1]).name)
+
+        class Result:
+            returncode = 0
+            stdout = "Did not solve.\n"
+            stderr = ""
+
+        return Result()
+
+    monkeypatch.setattr(local_solve_field, "make_solver_image_variants", fake_variants)
+    monkeypatch.setattr(local_solve_field, "cleanup_solver_image_variants", lambda variants: None)
+    monkeypatch.setattr(local_solve_field.subprocess, "run", fake_run)
+    monkeypatch.setattr(local_solve_field.time, "monotonic", lambda: next(times))
+
+    result = local_solve_field.solve_with_local_solve_field(
+        image_path=str(image_path),
+        sky_mask=np.ones((8, 10), dtype=bool),
+        config=SolverConfig(
+            solver="local",
+            timeout_seconds=7,
+            local_index_dir=str(index_dir),
+            local_solve_field_path="/opt/homebrew/bin/solve-field",
+        ),
+    )
+
+    assert not result.success
+    assert result.failure_reason == "local_solve_field_timeout"
+    assert calls == ["image.png"]
+
+
+def test_local_solve_field_preserves_shared_hard_failure_reason_after_retries(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(b"fake-image")
+    index_dir = tmp_path / "indexes"
+    index_dir.mkdir()
+
+    def fake_variants(path, mask):  # noqa: ARG001
+        return [
+            SolverImageVariant("original", path, False),
+            SolverImageVariant("sky_masked", str(tmp_path / "masked.png"), True),
+        ]
+
+    def fake_run(cmd, capture_output, text, timeout, check):  # noqa: ARG001
+        raise FileNotFoundError("solve-field missing")
+
+    monkeypatch.setattr(local_solve_field, "make_solver_image_variants", fake_variants)
+    monkeypatch.setattr(local_solve_field, "cleanup_solver_image_variants", lambda variants: None)
+    monkeypatch.setattr(local_solve_field.subprocess, "run", fake_run)
+
+    result = local_solve_field.solve_with_local_solve_field(
+        image_path=str(image_path),
+        sky_mask=np.ones((8, 10), dtype=bool),
+        config=SolverConfig(
+            solver="local",
+            timeout_seconds=7,
+            local_index_dir=str(index_dir),
+            local_solve_field_path="/missing/solve-field",
+        ),
+    )
+
+    assert not result.success
+    assert result.failure_reason == "local_solve_field_launch_failed"
+    assert [error["reason"] for error in result.diagnostics["attempt_errors"]] == [
+        "local_solve_field_launch_failed",
+        "local_solve_field_launch_failed",
+    ]

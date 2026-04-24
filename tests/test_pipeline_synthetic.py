@@ -11,6 +11,7 @@ from iona.astronomy.geolocation import (
 from iona.camera.intrinsics import estimate_camera_intrinsics
 from iona.camera.rotation_fit import fit_rotation_kabsch
 from iona.config import PipelineConfig, SolverConfig
+from iona.cv.segmentation import SegmentationBackendError
 from iona.pipeline import auto_estimate
 from iona.pipeline.auto_estimate import estimate_zenith_radec, run_auto_pipeline
 from iona.pipeline.result_schema import PlateSolveResult, VanishingPointResult
@@ -67,6 +68,8 @@ def test_pipeline_failure_result_contains_machine_readable_diagnostics(tmp_path)
     assert any(event.stage == "star_detection" and event.status == "failed" for event in result.diagnostics)
     assert any(event.stage == "line_detection" and event.status == "failed" for event in result.diagnostics)
     assert result.quality["plate_solve"]["failure_reason"] == "plate_solver_disabled"
+    assert result.quality["segmentation"]["used_fallback"] is True
+    assert any(event.stage == "segmentation" and event.status == "ok" for event in result.diagnostics)
 
 
 def test_pipeline_uses_exif_transposed_pixels_for_plate_solving(tmp_path, monkeypatch) -> None:
@@ -91,3 +94,93 @@ def test_pipeline_uses_exif_transposed_pixels_for_plate_solving(tmp_path, monkey
     )
 
     assert observed_sizes == [(20, 40)]
+
+
+def test_pipeline_promotes_solver_timeout_from_attempt_diagnostics(tmp_path, monkeypatch) -> None:
+    image_path = tmp_path / "blank.jpg"
+    Image.new("RGB", (80, 60), color=(5, 5, 8)).save(image_path)
+
+    def fake_solve_plate(path, sky_mask, config):  # noqa: ARG001
+        return PlateSolveResult(
+            success=False,
+            failure_reason="local_solve_field_all_attempts_failed",
+            diagnostics={
+                "attempt_errors": [
+                    {"attempt": "original", "reason": "local_solve_field_no_solution"},
+                    {"attempt": "star_enhanced", "reason": "local_solve_field_timeout"},
+                ]
+            },
+        )
+
+    monkeypatch.setattr(auto_estimate, "solve_plate", fake_solve_plate)
+
+    result = run_auto_pipeline(
+        str(image_path),
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        PipelineConfig(solver=SolverConfig(solver="local")),
+    )
+
+    assert "local_solve_field_timeout" in result.failure_reasons
+    assert "solver_timeout" in result.failure_reasons
+
+
+def test_pipeline_reports_explicit_segmentation_backend_failure(tmp_path, monkeypatch) -> None:
+    """Regression: explicit SegFormer failures should stay visible in JSON diagnostics."""
+    image_path = tmp_path / "blank.jpg"
+    Image.new("RGB", (80, 60), color=(5, 5, 8)).save(image_path)
+
+    def fail_segmentation(image, backend, model_id):  # noqa: ARG001
+        raise SegmentationBackendError(
+            "SegFormer segmentation unavailable",
+            backend="segformer",
+            model_id="fake/segformer",
+            reason="segformer_unavailable",
+        )
+
+    monkeypatch.setattr(auto_estimate, "estimate_scene_masks", fail_segmentation)
+
+    result = run_auto_pipeline(
+        str(image_path),
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        PipelineConfig(
+            solver=SolverConfig(solver="none"),
+            segmentation_backend="segformer",
+            segmentation_model="fake/segformer",
+        ),
+    )
+
+    assert not result.success
+    assert result.confidence == "failed"
+    assert "segmentation_failed" in result.failure_reasons
+    assert "segformer_unavailable" in result.failure_reasons
+    assert result.quality["segmentation"]["failure_reason"] == "segformer_unavailable"
+    assert any(event.stage == "segmentation" and event.status == "failed" for event in result.diagnostics)
+
+
+def test_pipeline_reports_unsupported_segmentation_backend(tmp_path) -> None:
+    """Regression: typoed segmentation backend values used to crash the CLI path."""
+    image_path = tmp_path / "blank.jpg"
+    Image.new("RGB", (80, 60), color=(5, 5, 8)).save(image_path)
+
+    result = run_auto_pipeline(
+        str(image_path),
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        PipelineConfig(
+            solver=SolverConfig(solver="none"),
+            segmentation_backend="segfomer",
+            segmentation_model="fake/segformer",
+        ),
+    )
+
+    assert not result.success
+    assert result.confidence == "failed"
+    assert "segmentation_failed" in result.failure_reasons
+    assert "unsupported_segmentation_backend" in result.failure_reasons
+    assert result.quality["segmentation"]["backend"] == "segfomer"
+    assert result.quality["segmentation"]["failure_reason"] == "unsupported_segmentation_backend"
+    assert any(
+        event.stage == "segmentation"
+        and event.status == "failed"
+        and event.details["failure_reason"] == "unsupported_segmentation_backend"
+        for event in result.diagnostics
+    )

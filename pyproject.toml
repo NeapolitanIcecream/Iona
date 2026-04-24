@@ -25,6 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ml = ["torch>=2.2,<3", "transformers>=4.51,<5"]
 ui = ["streamlit>=1.30"]
 
 [dependency-groups]

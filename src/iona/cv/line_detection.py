@@ -23,7 +23,11 @@ def _line_midpoint_inside_mask(line: LineSegment, mask: np.ndarray) -> bool:
     return 0 <= y < mask.shape[0] and 0 <= x < mask.shape[1] and bool(mask[y, x])
 
 
-def detect_building_lines(image: np.ndarray, sky_mask: np.ndarray) -> BuildingLineDetectionResult:
+def detect_building_lines(
+    image: np.ndarray,
+    sky_mask: np.ndarray,
+    building_mask: np.ndarray | None = None,
+) -> BuildingLineDetectionResult:
     try:
         import cv2
     except Exception:
@@ -37,7 +41,10 @@ def detect_building_lines(image: np.ndarray, sky_mask: np.ndarray) -> BuildingLi
 
     gray = to_grayscale_float(image)
     gray_u8 = np.clip(gray * 255.0, 0, 255).astype(np.uint8)
-    building_mask = ~np.asarray(sky_mask, dtype=bool)
+    if building_mask is not None:
+        building_mask = np.asarray(building_mask, dtype=bool)
+    else:
+        building_mask = ~np.asarray(sky_mask, dtype=bool)
     if building_mask.shape != gray.shape:
         building_mask = np.ones_like(gray, dtype=bool)
     edges = cv2.Canny(gray_u8, 60, 180)
