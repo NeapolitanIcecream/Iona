@@ -50,7 +50,7 @@ def _run_auto(
     )
     result = run_auto_pipeline(image, utc_time, config)
     result.save_json(output)
-    if viz:
+    if viz and "segmentation_failed" not in result.failure_reasons:
         rgb = load_rgb_image(image)
         scene = estimate_scene_masks(
             rgb,

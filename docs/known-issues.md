@@ -21,8 +21,10 @@ or coverage than it has.
 ## Implemented With MVP Limits
 
 - Sky and building segmentation can use an optional SegFormer ADE20K backend.
-  If the optional ML dependencies or model weights are unavailable, the pipeline
-  falls back to simple OpenCV/statistical rules and caps confidence.
+  If the optional ML dependencies or model weights are unavailable,
+  `--segmentation-backend auto` falls back to simple OpenCV/statistical rules
+  and caps confidence. An explicit `--segmentation-backend segformer` request
+  fails with a segmentation failure reason instead of falling back.
 - Building vertical detection depends on line segments. It can fail when the
   building is too small, curved, occluded, or dominated by decorative/window
   lines.

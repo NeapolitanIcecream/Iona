@@ -58,7 +58,9 @@ uv sync --extra ml --group dev
 ```
 
 Without the `ml` extra, `--segmentation-backend auto` falls back to the classic
-OpenCV/statistical masks and records that fallback in JSON diagnostics.
+OpenCV/statistical masks and records that fallback in JSON diagnostics. An
+explicit `--segmentation-backend segformer` request fails instead of silently
+falling back, so backend-specific checks stay honest.
 
 ## Astrometry.net API Key
 
@@ -155,7 +157,8 @@ tests/             Unit and synthetic behavior specs
 - Plate solving depends on Astrometry.net or a local astrometry.net
   `solve-field` install with suitable index files.
 - The default segmentation path can use a SegFormer ADE20K model when the
-  optional `ml` extra is installed; otherwise it falls back to traditional CV.
+  optional `ml` extra is installed; otherwise `--segmentation-backend auto`
+  falls back to traditional CV.
 - A failed or unstable vanishing point returns a failure instead of asking for
   manual annotation.
 - Longitude confidence depends strongly on timestamp quality: one minute of

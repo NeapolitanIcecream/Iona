@@ -29,6 +29,26 @@ BUILDING_LABELS = {
     "windowpane",
     "door",
 }
+_SEGFORMER_MODEL_CACHE: Dict[str, Tuple[Any, Any, Any]] = {}
+
+
+class SegmentationBackendError(RuntimeError):
+    """Raised when an explicitly requested segmentation backend cannot run."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        backend: str,
+        model_id: Optional[str],
+        reason: str,
+        original_error: Optional[BaseException] = None,
+    ) -> None:
+        super().__init__(message)
+        self.backend = backend
+        self.model_id = model_id
+        self.reason = reason
+        self.original_error = original_error
 
 
 def estimate_scene_masks(
@@ -45,8 +65,15 @@ def estimate_scene_masks(
 
     try:
         result = _estimate_segformer_scene_masks(image, model_id=model_id, requested_backend=backend)
-        if _implausible_mask_reason(result):
-            reason = _implausible_mask_reason(result) or "implausible_segmentation"
+        reason = _implausible_mask_reason(result)
+        if reason:
+            if backend == "segformer":
+                raise SegmentationBackendError(
+                    "SegFormer segmentation produced implausible mask areas.",
+                    backend=backend,
+                    model_id=model_id,
+                    reason=reason,
+                )
             return _classic_scene_masks(
                 image,
                 requested_backend=backend,
@@ -57,6 +84,16 @@ def estimate_scene_masks(
             )
         return result
     except Exception as exc:
+        if backend == "segformer":
+            if isinstance(exc, SegmentationBackendError):
+                raise
+            raise SegmentationBackendError(
+                "SegFormer segmentation unavailable.",
+                backend=backend,
+                model_id=model_id,
+                reason="segformer_unavailable",
+                original_error=exc,
+            ) from exc
         return _classic_scene_masks(
             image,
             requested_backend=backend,
@@ -177,13 +214,25 @@ def _estimate_segformer_scene_masks(
     )
 
 
+def clear_segformer_model_cache() -> None:
+    """Clear cached SegFormer processor/model instances."""
+
+    _SEGFORMER_MODEL_CACHE.clear()
+
+
 def _load_segformer_model(model_id: str) -> Tuple[Any, Any, Any]:
+    cached = _SEGFORMER_MODEL_CACHE.get(model_id)
+    if cached is not None:
+        return cached
+
     import torch
     from transformers import AutoImageProcessor, AutoModelForSemanticSegmentation
 
     processor = AutoImageProcessor.from_pretrained(model_id)
     model = AutoModelForSemanticSegmentation.from_pretrained(model_id)
-    return torch, processor, model
+    loaded = (torch, processor, model)
+    _SEGFORMER_MODEL_CACHE[model_id] = loaded
+    return loaded
 
 
 def _segmentation_to_array(value: Any) -> np.ndarray:

@@ -17,7 +17,7 @@ from iona.config import PipelineConfig
 from iona.cv.line_detection import detect_building_lines
 from iona.cv.preprocess import load_rgb_image, save_rgb_image_temp
 from iona.cv.quality import aggregate_confidence, confidence_gate_issues
-from iona.cv.segmentation import estimate_scene_masks
+from iona.cv.segmentation import SegmentationBackendError, estimate_scene_masks
 from iona.cv.star_detection import detect_star_candidates
 from iona.cv.vanishing_point import estimate_vertical_vanishing_point
 from iona.exif import read_exif
@@ -237,11 +237,41 @@ def run_auto_pipeline(
     height, width = image.shape[:2]
     diagnostics.append(_event("image", "ok", "Image loaded", width=width, height=height))
 
-    scene = estimate_scene_masks(
-        image,
-        backend=config.segmentation_backend,
-        model_id=config.segmentation_model,
-    )
+    try:
+        scene = estimate_scene_masks(
+            image,
+            backend=config.segmentation_backend,
+            model_id=config.segmentation_model,
+        )
+    except SegmentationBackendError as exc:
+        failure_reasons.extend(["segmentation_failed", exc.reason])
+        warnings.append("Segmentation failed for the requested backend.")
+        details = {
+            "requested_backend": config.segmentation_backend,
+            "backend": exc.backend,
+            "model_id": exc.model_id,
+            "failure_reason": exc.reason,
+        }
+        if exc.original_error is not None:
+            details["error"] = str(exc.original_error)
+        diagnostics.append(_event("segmentation", "failed", "Scene segmentation failed", **details))
+        return IonaResult(
+            success=False,
+            estimated_location=None,
+            confidence="failed",
+            quality={
+                "segmentation": _quality_dict(
+                    backend=exc.backend,
+                    model_id=exc.model_id,
+                    confidence=0.0,
+                    used_fallback=False,
+                    failure_reason=exc.reason,
+                )
+            },
+            warnings=warnings,
+            failure_reasons=failure_reasons,
+            diagnostics=diagnostics,
+        )
     warnings.extend(scene.warnings)
     diagnostics.append(_event("segmentation", "ok", "Scene masks estimated", **scene.diagnostics))
     sky = scene.sky
