@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from PIL import Image
 
 from iona.config import PipelineConfig, SolverConfig
 from iona.pipeline.result_schema import IonaResult, LocationEstimate
 from iona.validation.prototypes import (
+    default_manifest_path,
     haversine_distance_km,
     load_prototype_manifest,
     render_validation_markdown,
@@ -56,6 +58,13 @@ def test_load_prototype_manifest_returns_photo_entries(tmp_path) -> None:
 
     assert manifest["version"] == 1
     assert manifest["photos"][0]["id"] == "sample_photo"
+
+
+def test_packaged_default_manifest_is_available() -> None:
+    packaged_manifest = Path(default_manifest_path())
+
+    assert packaged_manifest.is_file()
+    assert load_prototype_manifest(packaged_manifest)["photos"]
 
 
 def test_validate_prototype_manifest_skips_when_local_solver_is_unavailable(tmp_path) -> None:
@@ -138,6 +147,62 @@ def test_validate_prototype_manifest_computes_benchmark_error_with_fake_runner(t
 
     assert validation["summary"]["success"] == 1
     assert validation["photos"][0]["estimated_error_km"] == 0.0
+
+
+def test_validate_prototype_manifest_records_pipeline_exceptions_and_continues(tmp_path) -> None:
+    first_image = tmp_path / "first.jpg"
+    second_image = tmp_path / "second.jpg"
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(first_image)
+    Image.new("RGB", (20, 10), color=(0, 0, 0)).save(second_image)
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "photos": [
+                    {
+                        "id": "first",
+                        "file": first_image.name,
+                        "source_time": "2026-01-01T12:00:00",
+                        "timezone_hint": "UTC",
+                        "camera_location": {"lat": 35.0, "lon": 139.0},
+                    },
+                    {
+                        "id": "second",
+                        "file": second_image.name,
+                        "source_time": "2026-01-01T12:00:00",
+                        "timezone_hint": "UTC",
+                        "camera_location": {"lat": 35.0, "lon": 139.0},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_runner(image_path: str, utc_time: datetime, config: PipelineConfig) -> IonaResult:
+        if image_path.endswith("first.jpg"):
+            raise RuntimeError("corrupt image")
+        return IonaResult(
+            success=True,
+            estimated_location=LocationEstimate(latitude_deg=35.0, longitude_deg=139.0, gmst_deg=0.0),
+            confidence="medium",
+            quality={},
+            warnings=[],
+            failure_reasons=[],
+            diagnostics=[],
+        )
+
+    validation = validate_prototype_manifest(
+        manifest_path,
+        config=PipelineConfig(solver=SolverConfig(solver="none")),
+        run_pipeline=fake_runner,
+    )
+
+    assert validation["summary"]["failed"] == 1
+    assert validation["summary"]["success"] == 1
+    assert validation["photos"][0]["failure_reasons"] == ["pipeline_exception"]
+    assert validation["photos"][0]["diagnostics"][0]["details"]["error_type"] == "RuntimeError"
 
 
 def test_render_validation_markdown_includes_skipped_diagnostics(tmp_path) -> None:

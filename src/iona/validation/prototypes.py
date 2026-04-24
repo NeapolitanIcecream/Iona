@@ -21,7 +21,10 @@ LOCAL_SOLVERS = {"solve-field", "local", "local-solve-field"}
 
 
 def default_manifest_path() -> Path:
-    return Path(__file__).resolve().parents[3] / "examples" / "prototype_photos" / "manifest.json"
+    source_manifest = Path(__file__).resolve().parents[3] / "examples" / "prototype_photos" / "manifest.json"
+    if source_manifest.is_file():
+        return source_manifest
+    return Path(__file__).resolve().parents[1] / "data" / "prototype_photos" / "manifest.json"
 
 
 def load_prototype_manifest(path: str | Path) -> Dict[str, Any]:
@@ -135,7 +138,11 @@ def _validate_photo(
     except Exception:
         return _skipped_photo(base, "invalid_source_time")
 
-    result = run_pipeline(str(image_path), utc_time, config)
+    try:
+        result = run_pipeline(str(image_path), utc_time, config)
+    except Exception as exc:
+        return _pipeline_exception_photo(base, exc)
+
     result_dict = result.to_dict()
     location = result_dict.get("estimated_location")
     estimated_error_km = None
@@ -169,6 +176,26 @@ def _validate_photo(
     }
     photo_result["expectation"] = _expectation_for(photo_result)
     return photo_result
+
+
+def _pipeline_exception_photo(base: Mapping[str, Any], exc: Exception) -> Dict[str, Any]:
+    return {
+        **base,
+        "status": "failed",
+        "skip_reason": None,
+        "confidence": "failed",
+        "failure_reasons": ["pipeline_exception"],
+        "warnings": ["Pipeline raised an exception for this prototype photo."],
+        "diagnostics": [
+            {
+                "stage": "pipeline",
+                "status": "failed",
+                "message": "Pipeline raised exception",
+                "details": {"error_type": type(exc).__name__, "error": str(exc)},
+            }
+        ],
+        "expectation": {"status": "unscored", "reason": "pipeline_exception"},
+    }
 
 
 def _ground_truth(photo: Mapping[str, Any]) -> Optional[Dict[str, float]]:
