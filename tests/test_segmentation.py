@@ -118,6 +118,17 @@ def test_explicit_segformer_failure_is_not_silently_downgraded(monkeypatch) -> N
     assert exc_info.value.reason == "segformer_unavailable"
 
 
+def test_unsupported_segmentation_backend_raises_structured_error() -> None:
+    image = np.zeros((40, 60, 3), dtype=np.uint8)
+
+    with pytest.raises(segmentation.SegmentationBackendError) as exc_info:
+        segmentation.estimate_scene_masks(image, backend="segfomer", model_id="fake/segformer")
+
+    assert exc_info.value.backend == "segfomer"
+    assert exc_info.value.model_id == "fake/segformer"
+    assert exc_info.value.reason == "unsupported_segmentation_backend"
+
+
 def test_segformer_model_loads_are_cached_by_model_id(monkeypatch) -> None:
     """Regression: prototype validation reloaded the same SegFormer weights per image."""
     load_calls = []

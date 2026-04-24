@@ -155,3 +155,32 @@ def test_pipeline_reports_explicit_segmentation_backend_failure(tmp_path, monkey
     assert "segformer_unavailable" in result.failure_reasons
     assert result.quality["segmentation"]["failure_reason"] == "segformer_unavailable"
     assert any(event.stage == "segmentation" and event.status == "failed" for event in result.diagnostics)
+
+
+def test_pipeline_reports_unsupported_segmentation_backend(tmp_path) -> None:
+    """Regression: typoed segmentation backend values used to crash the CLI path."""
+    image_path = tmp_path / "blank.jpg"
+    Image.new("RGB", (80, 60), color=(5, 5, 8)).save(image_path)
+
+    result = run_auto_pipeline(
+        str(image_path),
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        PipelineConfig(
+            solver=SolverConfig(solver="none"),
+            segmentation_backend="segfomer",
+            segmentation_model="fake/segformer",
+        ),
+    )
+
+    assert not result.success
+    assert result.confidence == "failed"
+    assert "segmentation_failed" in result.failure_reasons
+    assert "unsupported_segmentation_backend" in result.failure_reasons
+    assert result.quality["segmentation"]["backend"] == "segfomer"
+    assert result.quality["segmentation"]["failure_reason"] == "unsupported_segmentation_backend"
+    assert any(
+        event.stage == "segmentation"
+        and event.status == "failed"
+        and event.details["failure_reason"] == "unsupported_segmentation_backend"
+        for event in result.diagnostics
+    )

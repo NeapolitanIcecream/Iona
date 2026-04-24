@@ -59,7 +59,12 @@ def estimate_scene_masks(
     """Estimate sky and building masks, preferring SegFormer when requested."""
 
     if backend not in SEGMENTATION_BACKENDS:
-        raise ValueError(f"Unsupported segmentation backend: {backend}")
+        raise SegmentationBackendError(
+            f"Unsupported segmentation backend: {backend}",
+            backend=backend,
+            model_id=model_id,
+            reason="unsupported_segmentation_backend",
+        )
     if backend == "classic":
         return _classic_scene_masks(image, requested_backend=backend)
 
